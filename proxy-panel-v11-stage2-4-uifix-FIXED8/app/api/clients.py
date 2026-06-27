@@ -105,7 +105,18 @@ def _vless_link(client: Client, inbound: Inbound) -> str:
     elif tcfg.get("reality_public_key"):
         params["security"] = "reality"
         params["pbk"] = tcfg.get("reality_public_key", "")
-        params["sni"] = (tcfg.get("reality_server_names") or [""])[0]
+        # SNI клиента обязан совпасть с одним из serverNames СЕРВЕРА.
+        # В shared-443 (Reality на :443) сервер принудительно использует
+        # _shared_443_server_names() (panel/naive домены) и ИГНОРИРУЕТ поле
+        # reality_server_names из формы (оно в БД пустое). Поэтому ссылка
+        # тоже должна брать SNI оттуда, иначе Reality-handshake не сойдётся.
+        # В обычном режиме (Reality не на 443) берём из формы, как и сервер.
+        from app.core.xray import _is_reality_shared_443, _shared_443_server_names
+        if _is_reality_shared_443(inbound):
+            server_names = _shared_443_server_names()
+        else:
+            server_names = tcfg.get("reality_server_names") or []
+        params["sni"] = (server_names or [""])[0]
         params["sid"] = (tcfg.get("reality_short_ids") or [""])[0]
         params["fp"] = tcfg.get("fingerprint", "chrome")
     if client.flow:
@@ -131,7 +142,11 @@ def _trojan_link(client: Client, inbound: Inbound) -> str:
 def _shadowsocks_link(client: Client, inbound: Inbound) -> str:
     extra = inbound.get_extra_config()
     method = extra.get("method", "aes-256-gcm")
-    password = client.password or ""
+    # Fallback ДОЛЖЕН совпадать с серверным: caddy (_build_naive_catchall_route)
+    # и xray (socks/shadowsocks) используют `c.password or c.uuid`. Если клиент
+    # создан без пароля, сервер ждёт uuid — ссылка обязана отдать тот же uuid,
+    # иначе авторизация не сойдётся (баг с пустым паролем в ссылке).
+    password = client.password or client.uuid
     server = _server(inbound)
     # SIP002: userinfo MUST be URL-safe base64 без padding
     userinfo = base64.urlsafe_b64encode(
@@ -142,7 +157,11 @@ def _shadowsocks_link(client: Client, inbound: Inbound) -> str:
 
 def _naive_link(client: Client, inbound: Inbound) -> str:
     username = client.username or client.name
-    password = client.password or ""
+    # Fallback ДОЛЖЕН совпадать с серверным: caddy (_build_naive_catchall_route)
+    # и xray (socks/shadowsocks) используют `c.password or c.uuid`. Если клиент
+    # создан без пароля, сервер ждёт uuid — ссылка обязана отдать тот же uuid,
+    # иначе авторизация не сойдётся (баг с пустым паролем в ссылке).
+    password = client.password or client.uuid
     domain = _server(inbound)
     return f"naive+https://{urllib.parse.quote(username)}:{urllib.parse.quote(password)}@{domain}:443#{urllib.parse.quote(client.name)}"
 
@@ -150,7 +169,11 @@ def _naive_link(client: Client, inbound: Inbound) -> str:
 def _socks_link(client: Client, inbound: Inbound) -> str:
     server = _server(inbound)
     username = client.username or client.name
-    password = client.password or ""
+    # Fallback ДОЛЖЕН совпадать с серверным: caddy (_build_naive_catchall_route)
+    # и xray (socks/shadowsocks) используют `c.password or c.uuid`. Если клиент
+    # создан без пароля, сервер ждёт uuid — ссылка обязана отдать тот же uuid,
+    # иначе авторизация не сойдётся (баг с пустым паролем в ссылке).
+    password = client.password or client.uuid
     userinfo = base64.b64encode(f"{username}:{password}".encode()).decode()
     return f"socks5://{userinfo}@{server}:{_port(inbound)}#{urllib.parse.quote(client.name)}"
 
