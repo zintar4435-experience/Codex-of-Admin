@@ -802,6 +802,31 @@ const TEMPLATES = {
   },
 };
 
+// ── Видимые протоколы ───────────────────────────────────────────────
+// Пока в проде проверены только VLESS (вкл. Reality) и NaiveProxy —
+// остальные протоколы временно скрыты из интерфейса. Чтобы вернуть
+// протокол, когда он заработает, просто добавьте его сюда (одна строка).
+const ENABLED_PROTOCOLS = ['vless', 'naive'];
+
+function applyProtocolVisibility() {
+  // Опции в селекте «Протокол» (Xray-инбаунд).
+  document.querySelectorAll('#f-protocol option').forEach(o => {
+    o.hidden = !ENABLED_PROTOCOLS.includes(o.value);
+  });
+  // Если текущий выбор оказался скрытым — переключаемся на vless.
+  const sel = document.getElementById('f-protocol');
+  if (sel && sel.selectedOptions[0] && sel.selectedOptions[0].hidden) sel.value = 'vless';
+  // Кнопки быстрого старта: прячем те, чей протокол скрыт.
+  document.querySelectorAll('[onclick*="Template("]').forEach(btn => {
+    const m = (btn.getAttribute('onclick') || '').match(/Template\('([^']+)'\)/);
+    if (!m) return;
+    const t = TEMPLATES[m[1]];
+    if (!t) return;
+    const proto = t.engine === 'naive' ? 'naive' : t.protocol;
+    btn.style.display = ENABLED_PROTOCOLS.includes(proto) ? '' : 'none';
+  });
+}
+
 async function applyTemplate(key) {
   const t = TEMPLATES[key];
   if (!t) return;
@@ -1271,6 +1296,7 @@ async function importBackup(input) {
 
 // Init
 load();
+applyProtocolVisibility();   // скрыть временно недоступные протоколы
 // Грузим состояние UFW в фоне — данные нужны при открытии модалки.
 loadFirewallStatus();
 </script>

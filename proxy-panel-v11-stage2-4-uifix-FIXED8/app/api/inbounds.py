@@ -18,6 +18,13 @@ bp = Blueprint("inbounds", __name__)
 
 XRAY_PROTOCOLS = {"vmess", "vless", "trojan", "shadowsocks", "socks", "http", "dokodemo"}
 NAIVE_PROTOCOLS = {"naive"}
+
+# Протоколы, доступные для СОЗДАНИЯ новых инбаундов. Пока в проде проверены
+# только VLESS (вкл. Reality) и NaiveProxy — остальные временно скрыты в UI и
+# заблокированы на создание здесь (вторая линия для прямых вызовов API).
+# Чтобы вернуть протокол, когда он заработает, добавьте его сюда (одна строка).
+# Существующих инбаундов это НЕ касается — редактирование/применение работают.
+ENABLED_XRAY_PROTOCOLS = {"vless"}
 VALID_TRANSPORTS = {"tcp", "ws", "grpc", "kcp", "h2", "httpupgrade", "splithttp"}
 
 XRAY_BIN = "/usr/local/bin/xray"
@@ -419,6 +426,11 @@ def create_inbound():
 
     if engine == "xray" and protocol not in XRAY_PROTOCOLS:
         return jsonify({"error": f"Неверный протокол для Xray: {protocol}"}), 400
+    if engine == "xray" and protocol not in ENABLED_XRAY_PROTOCOLS:
+        return jsonify({"error": (
+            "Этот протокол временно недоступен. Сейчас поддерживаются "
+            "VLESS (включая Reality) и NaiveProxy."
+        )}), 400
     if engine == "naive" and protocol not in NAIVE_PROTOCOLS:
         return jsonify({"error": "Для NaiveProxy протокол должен быть 'naive'"}), 400
 
