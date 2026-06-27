@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Вход — ProxyPanel</title>
-  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500&family=Unbounded:wght@800&display=swap" rel="stylesheet">
+  <title>Вход — Codex of Admin</title>
+  <link href="/static/fonts.css" rel="stylesheet">
   <style>
     :root {
       --bg: #0a0c10; --surface: #111318; --border: #1e2330;
@@ -114,8 +114,9 @@
 </head>
 <body>
   <div class="login-box">
-    <div class="logo">ProxyPanel</div>
-    <div class="logo-sub">управление прокси-сервером</div>
+    <img src="/static/logo.svg" alt="" width="52" height="52" style="display:block;margin:0 auto 16px;border-radius:12px">
+    <div class="logo" style="text-align:center">Codex of Admin</div>
+    <div class="logo-sub" style="text-align:center">управление прокси-сервером</div>
 
     {% with msgs = get_flashed_messages(with_categories=true) %}
       {% for cat, msg in msgs %}

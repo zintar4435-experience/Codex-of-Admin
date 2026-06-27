@@ -479,7 +479,7 @@ WorkingDirectory=${PANEL_DIR}
 Environment=HOME=/home/proxypanel
 EnvironmentFile=${ENV_FILE}
 ExecStartPre=+/bin/chown -R ${PANEL_USER}:${PANEL_USER} ${PANEL_DIR}/instance
-ExecStart=/bin/sh -c 'exec ${PANEL_DIR}/venv/bin/gunicorn --bind "\$\${GUNICORN_BIND:-0.0.0.0:5000}" --workers 1 --threads 4 --timeout 30 run:app'
+ExecStart=/bin/sh -c 'exec ${PANEL_DIR}/venv/bin/gunicorn --bind "\$\${GUNICORN_BIND:-0.0.0.0:5000}" --workers 2 --threads 4 --timeout 30 run:app'
 ExecStartPost=/bin/sh -c 'for i in 1 2 3 4 5; do curl -sf http://127.0.0.1:5000/api/system/health && exit 0; sleep 2; done; exit 1'
 Restart=on-failure
 RestartSec=5s

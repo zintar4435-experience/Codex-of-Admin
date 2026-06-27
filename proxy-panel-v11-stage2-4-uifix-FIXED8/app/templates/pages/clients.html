@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Клиенты — ProxyPanel{% endblock %}
+{% block title %}Клиенты — Codex of Admin{% endblock %}
 {% block page_title %}Клиенты{% endblock %}
 {% block content %}
 
@@ -173,7 +173,7 @@
 {% endblock %}
 {% block scripts %}
 <!-- qrcode.js — генератор QR в DOM (canvas/svg). ~9 KB, CDN. -->
-<script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
+<script src="/static/qrcode.min.js"></script>
 <script>
 const IB_ID = {{ inbound_id }};
 let clients = [];

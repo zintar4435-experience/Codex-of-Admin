@@ -212,6 +212,19 @@ LRCADDY
 # если его ещё нет (для апгрейда со старых версий, где шедулер
 # работал внутри gunicorn). Идемпотентно.
 # ─────────────────────────────────────────────────────────────
+ensure_panel_workers() {
+    # Поднимает gunicorn с 1 до 2 воркеров у уже установленных панелей,
+    # чтобы запросы не стояли в очереди (фикс «затупов»). Идемпотентно:
+    # если уже 2+ воркеров или строка не найдена — ничего не делает.
+    local unit="/etc/systemd/system/proxy-panel.service"
+    [[ -f "${unit}" ]] || return 0
+    if grep -q -- "--workers 1 " "${unit}"; then
+        info "Поднимаю gunicorn до 2 воркеров (фикс отзывчивости панели)..."
+        sed -i 's/--workers 1 /--workers 2 /' "${unit}"
+        systemctl daemon-reload
+    fi
+}
+
 ensure_scheduler_unit() {
     if [[ -f /etc/systemd/system/proxy-panel-scheduler.service ]]; then
         return 0
@@ -477,6 +490,7 @@ PYCHECK
     "${PANEL_DIR}/venv/bin/pip" install -q -r "${PANEL_DIR}/requirements.txt" gunicorn
 
     ensure_scheduler_unit
+    ensure_panel_workers
 
     info "Запуск сервиса proxy-panel..."
     systemctl start proxy-panel
