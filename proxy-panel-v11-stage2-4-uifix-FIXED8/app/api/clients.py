@@ -199,6 +199,39 @@ def generate_link(client: Client, inbound: Inbound) -> str | None:
 
 
 # ---------------------------------------------------------------------------
+# Защита от несовместимых полей (guardrails)
+# ---------------------------------------------------------------------------
+
+def _validate_client_flow(inbound: Inbound, flow) -> str | None:
+    """Возвращает текст ошибки, если flow несовместим с инбаундом, иначе None.
+
+    Flow (xtls-rprx-vision) технически работает ТОЛЬКО для VLESS с транспортом
+    TCP и включённой защитой (TLS или Reality) — vision требует raw TCP+TLS.
+    На любом другом сочетании Xray либо не примет конфиг, либо туннель будет
+    нерабочим. Пустой flow допустим всегда.
+    """
+    if not flow:
+        return None
+    if inbound.protocol != "vless":
+        return (
+            f"Flow (XTLS) поддерживается только VLESS, а инбаунд использует "
+            f"'{inbound.protocol}'. Уберите flow."
+        )
+    if (inbound.transport or "tcp") != "tcp":
+        return (
+            f"Flow (xtls-rprx-vision) требует транспорт TCP, а у инбаунда "
+            f"'{inbound.transport}'. Flow работает только с TCP."
+        )
+    tcfg = inbound.get_transport_config()
+    if not (inbound.tls_enabled or tcfg.get("reality_public_key")):
+        return (
+            "Flow (xtls-rprx-vision) требует TLS или Reality на инбаунде. "
+            "Без шифрования vision не работает."
+        )
+    return None
+
+
+# ---------------------------------------------------------------------------
 # CRUD endpoints
 # ---------------------------------------------------------------------------
 
@@ -251,6 +284,11 @@ def create_client(ib_id):
     existing_username = Client.query.filter_by(inbound_id=ib_id, username=username).first()
     if existing_username:
         return jsonify({"error": f"Клиент с username \'{username}\' уже существует в этом inbound'е"}), 409
+
+    # Flow допустим только для VLESS+TCP+TLS/Reality (см. _validate_client_flow).
+    flow_err = _validate_client_flow(inbound, data.get("flow"))
+    if flow_err:
+        return jsonify({"error": flow_err}), 400
 
     expire_at = None
     try:
@@ -315,6 +353,12 @@ def update_client(client_id):
         ok, err = validate_email(data["email"], strict=False)
         if not ok:
             return jsonify({"error": err}), 400
+
+    # Flow: валидируем только если юзер реально его прислал (как и email).
+    if "flow" in data:
+        flow_err = _validate_client_flow(c.inbound, data["flow"])
+        if flow_err:
+            return jsonify({"error": flow_err}), 400
 
     for field in ["name", "username", "email", "flow", "enabled"]:
         if field in data:
