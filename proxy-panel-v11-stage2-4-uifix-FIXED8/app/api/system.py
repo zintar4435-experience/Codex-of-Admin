@@ -537,7 +537,17 @@ def _xray_version() -> str:
         return "unknown"
 
 
+# Кэш последней версии Xray с GitHub: запрос к api.github.com медленный
+# (до 10с) и незачем дёргать его на каждый заход на страницу «Сервер».
+# Версия на GitHub меняется раз в недели — часа кэша более чем достаточно.
+_xray_latest_cache = {"ver": "", "ts": 0.0}
+_XRAY_LATEST_TTL = 3600  # секунд
+
+
 def _xray_latest_version() -> str:
+    now = time.time()
+    if _xray_latest_cache["ver"] and now - _xray_latest_cache["ts"] < _XRAY_LATEST_TTL:
+        return _xray_latest_cache["ver"]
     try:
         req = urllib.request.Request(
             "https://api.github.com/repos/XTLS/Xray-core/releases/latest",
@@ -545,14 +555,33 @@ def _xray_latest_version() -> str:
         )
         with urllib.request.urlopen(req, timeout=10) as resp:
             data = json.loads(resp.read())
-            return data.get("tag_name", "").lstrip("v")
+            ver = data.get("tag_name", "").lstrip("v")
+        if ver:
+            _xray_latest_cache["ver"] = ver
+            _xray_latest_cache["ts"] = now
+        return ver
     except Exception:
-        return ""
+        # При сетевой ошибке отдаём прошлое известное значение (если было),
+        # чтобы UI не «прыгал» — лучше слегка устаревшее, чем пусто.
+        return _xray_latest_cache["ver"]
+
+
+# Кэш ответа /status: его поллит статус-бар на КАЖДОЙ открытой странице,
+# а внутри — несколько subprocess-вызовов (systemctl is-active xray/caddy,
+# xray version) + HTTP к Caddy admin. Без кэша на маленьком VPS это
+# постоянная фоновая «молотилка» процессов. TTL 4с: статус-бар обновляется
+# раз в 15с, всплески от нескольких вкладок/воркеров схлопываются в один
+# реальный опрос.
+_status_cache = {"ts": 0.0, "data": None}
+_STATUS_TTL = 4.0
 
 
 @bp.get("/status")
 @login_required
 def status():
+    now = time.time()
+    if _status_cache["data"] is not None and now - _status_cache["ts"] < _STATUS_TTL:
+        return jsonify(_status_cache["data"])
     xray = _service_status("xray")
     caddy_svc = _service_status("caddy")
     caddy_api = get_caddy_status()
@@ -568,7 +597,7 @@ def status():
     except Exception:
         disk_total = disk_used = 0
 
-    return jsonify({
+    data = {
         "xray":   {**xray, "version": _xray_version()},
         "caddy":  {**caddy_svc, "api_reachable": caddy_api["running"]},
         "system": {
@@ -577,7 +606,10 @@ def status():
             "disk_total": disk_total,
             "disk_used":  disk_used,
         },
-    })
+    }
+    _status_cache["data"] = data
+    _status_cache["ts"] = now
+    return jsonify(data)
 
 
 @bp.get("/xray/versions")

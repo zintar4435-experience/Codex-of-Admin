@@ -1,0 +1,21 @@
+<svg viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Codex of Admin">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#161A21"/>
+      <stop offset="1" stop-color="#0E1015"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="50%" cy="42%" r="55%">
+      <stop offset="0" stop-color="#3DDC97" stop-opacity="0.16"/>
+      <stop offset="0.6" stop-color="#3DDC97" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <path d="M 512 0 C 156 0, 0 156, 0 512 C 0 868, 156 1024, 512 1024 C 868 1024, 1024 868, 1024 512 C 1024 156, 868 0, 512 0 Z" fill="url(#bg)"/>
+  <circle cx="512" cy="512" r="430" fill="url(#glow)"/>
+  <g transform="translate(0 -8)">
+    <path d="M 512 168 C 660 168, 784 214, 856 250 L 856 540 C 856 760, 706 884, 512 952 C 318 884, 168 760, 168 540 L 168 250 C 240 214, 364 168, 512 168 Z"
+          fill="none" stroke="#3DDC97" stroke-width="44" stroke-linejoin="round"/>
+    <path d="M 512 236 C 632 236, 732 273, 792 302 L 792 536 C 792 712, 668 814, 512 872 C 356 814, 232 712, 232 536 L 232 302 C 292 273, 392 236, 512 236 Z"
+          fill="none" stroke="#3DDC97" stroke-width="3" opacity="0.4"/>
+    <path d="M 396 540 L 476 624 L 648 432" fill="none" stroke="#3DDC97" stroke-width="58" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+</svg>
