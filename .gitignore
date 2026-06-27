@@ -1,0 +1,15 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Runtime instance data (НЕ коммитить — содержит секреты и БД)
+proxy-panel-v11-stage2-4-uifix-FIXED8/instance/
+instance/
+*.db
+*.db-shm
+*.db-wal
+.secret_key
+.env

@@ -793,6 +793,7 @@
     </nav>
     <div class="sidebar-footer">
       <form method="post" action="/auth/logout">
+        <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
         <button type="submit"><i class="bi bi-box-arrow-left"></i> Выйти</button>
       </form>
     </div>

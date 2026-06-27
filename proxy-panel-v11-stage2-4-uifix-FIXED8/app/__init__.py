@@ -96,7 +96,13 @@ def create_app(config_overrides: dict = None) -> Flask:
     # Исключения — эндпоинты первичного онбординга, которые вызываются
     # со standalone-страниц (setup/setup_progress, не наследующих base.html,
     # т.е. без csrf-meta). Они защищены SameSite=Lax + логином.
+    # Исключения — эндпоинты, вызываемые со standalone-страниц, не
+    # наследующих base.html (нет csrf-meta): форма входа и страницы
+    # первичного онбординга (setup / setup_progress). Они защищены
+    # SameSite=Lax + (где применимо) логином.
     _CSRF_EXEMPT = {
+        "/auth/login",
+        "/setup",
         "/api/system/enable-https",
         "/api/system/onboarding-handoff",
         "/api/system/restart-self",
@@ -119,10 +125,15 @@ def create_app(config_overrides: dict = None) -> Flask:
         # когда в ней уже что-то есть (не плодим cookie на публичном /sub).
         if session:
             session.permanent = True
-        if request.method in _CSRF_METHODS and request.path.startswith("/api/"):
+        # CSRF-проверка покрывает ВСЕ мутирующие запросы, а не только /api/.
+        # Раньше формы вне /api/ (например, /auth/logout) проходили без
+        # проверки токена — теперь нет. Токен принимается из заголовка
+        # X-CSRF-Token (JS-хелпер api()) или из поля формы _csrf (logout).
+        if request.method in _CSRF_METHODS:
             if request.path in _CSRF_EXEMPT:
                 return
-            sent = request.headers.get("X-CSRF-Token", "")
+            sent = (request.headers.get("X-CSRF-Token", "")
+                    or request.form.get("_csrf", ""))
             token = session.get("_csrf", "")
             if not (token and sent and hmac.compare_digest(sent, token)):
                 return jsonify({"error": "CSRF-токен отсутствует или неверен"}), 403

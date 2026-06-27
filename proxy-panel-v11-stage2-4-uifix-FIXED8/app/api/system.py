@@ -279,10 +279,18 @@ def https_status():
                     raise ValueError("пустой сертификат")
         # Сертификат готов — закрываем прямой доступ на порт 5000.
         # ufw разрешён в sudoers строго для этой одной команды.
-        subprocess.run(
-            ["sudo", "/usr/sbin/ufw", "delete", "allow", "5000/tcp"],
-            capture_output=True
-        )
+        #
+        # Гейт по HTTPS_ENABLED: этот эндпоинт намеренно анонимный (его
+        # поллит страница онбординга через HTTP origin). Чтобы аноним не
+        # мог дёргать sudo-команду после завершения онбординга, выполняем
+        # закрытие порта ТОЛЬКО пока процесс ещё в HTTP-режиме (онбординг
+        # не завершён). После рестарта с HTTPS_ENABLED=true ufw уже не
+        # трогается — порт 5000 к этому моменту и так закрыт.
+        if os.environ.get("HTTPS_ENABLED", "false").lower() != "true":
+            subprocess.run(
+                ["sudo", "/usr/sbin/ufw", "delete", "allow", "5000/tcp"],
+                capture_output=True
+            )
         return jsonify({"ready": True, "url": f"https://{domain}/dashboard"})
     except Exception:
         return jsonify({"ready": False, "status": "Получаем сертификат от Let's Encrypt…"})
@@ -638,6 +646,11 @@ def xray_logs():
     except (ValueError, TypeError):
         lines = 100
     log_type = request.args.get("type", "error")
+    # log_type подставляется в путь к файлу, поэтому строго whitelist.
+    # Без него ?type=../../caddy/access (и подобное) позволял бы прочитать
+    # произвольный *.log на сервере, доступный пользователю panel.
+    if log_type not in ("error", "access"):
+        return jsonify({"error": "Параметр type должен быть 'error' или 'access'"}), 400
     log_file = f"/var/log/xray/{log_type}.log"
     try:
         result = subprocess.run(["tail", "-n", str(lines), log_file],
