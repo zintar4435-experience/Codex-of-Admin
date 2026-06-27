@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Получаем сертификат…</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: #0f1117;
+    color: #e2e8f0;
+    font-family: 'Courier New', monospace;
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 1rem;
+  }
+  .card {
+    background: #1a1d27;
+    border: 1px solid #2d3148;
+    border-radius: 12px;
+    padding: 2.5rem 2rem;
+    max-width: 480px;
+    width: 100%;
+    text-align: center;
+  }
+  .spinner {
+    width: 56px; height: 56px;
+    border: 3px solid #2d3148;
+    border-top-color: #4ade80;
+    border-radius: 50%;
+    animation: spin 0.9s linear infinite;
+    margin: 0 auto 1.5rem;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  h1 { font-size: 1.15rem; font-weight: 600; color: #f1f5f9; margin-bottom: .5rem; }
+  .domain { color: #4ade80; font-size: .95rem; margin-bottom: 1.5rem; word-break: break-all; }
+  .status {
+    background: #12151e;
+    border: 1px solid #2d3148;
+    border-radius: 8px;
+    padding: .75rem 1rem;
+    font-size: .85rem;
+    color: #94a3b8;
+    min-height: 2.5rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: .5rem;
+    margin-bottom: 1rem;
+    transition: color .3s;
+  }
+  .status.ok { color: #4ade80; border-color: #166534; }
+  .dot {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: #94a3b8;
+    animation: blink 1.2s ease-in-out infinite;
+    flex-shrink: 0;
+  }
+  .status.ok .dot { background: #4ade80; animation: none; }
+  @keyframes blink { 0%,100%{opacity:1} 50%{opacity:.2} }
+  .hint { font-size: .78rem; color: #475569; line-height: 1.6; margin-top: 1rem; }
+  .progress-bar {
+    height: 3px;
+    background: #2d3148;
+    border-radius: 2px;
+    overflow: hidden;
+    margin-bottom: 1.5rem;
+  }
+  .progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #4ade80, #22d3ee);
+    border-radius: 2px;
+    width: 0%;
+    transition: width 1s ease;
+  }
+  .manual-link {
+    display: block;
+    margin-top: 1rem;
+    padding: .65rem 1rem;
+    background: #1e2433;
+    border: 1px solid #2d3148;
+    border-radius: 6px;
+    color: #94a3b8;
+    font-size: .8rem;
+    text-decoration: none;
+    word-break: break-all;
+    transition: all .2s;
+  }
+  .manual-link:hover { border-color: #4ade80; color: #4ade80; }
+  .manual-link.highlight {
+    background: #0c2a16;
+    border-color: #166534;
+    color: #4ade80;
+    font-weight: 600;
+  }
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="spinner" id="spinner"></div>
+  <h1>Выпуск TLS‑сертификата</h1>
+  <div class="domain">{{ domain }}</div>
+  <div class="progress-bar"><div class="progress-fill" id="bar"></div></div>
+  <div class="status" id="status">
+    <span class="dot"></span>
+    <span id="msg">Подключаемся к Let's Encrypt…</span>
+  </div>
+  <a id="manualLink" class="manual-link" href="https://{{ domain }}/dashboard" target="_self">
+    Если перенаправление не сработает — открыть https://{{ domain }}
+  </a>
+  <p class="hint">
+    Обычно это занимает 10–30 секунд.<br>
+    Страница сама откроет панель, когда сертификат будет готов.
+  </p>
+</div>
+
+<script>
+"use strict";
+
+const domain     = {{ domain | tojson }};
+const bar        = document.getElementById('bar');
+const statusBox  = document.getElementById('status');
+const msg        = document.getElementById('msg');
+const spin       = document.getElementById('spinner');
+const manualLink = document.getElementById('manualLink');
+
+let elapsed = 0;
+const maxSec = 120;   // таймаут 2 минуты
+let redirecting = false;
+
+// Плавно двигаем полосу прогресса (логарифмически — в начале быстро, потом замедляется).
+setInterval(() => {
+  elapsed++;
+  const pct = Math.min(95, 100 * (1 - Math.exp(-elapsed / 40)));
+  bar.style.width = pct + '%';
+}, 1000);
+
+// Готовит финальный URL для редиректа:
+//  - если мы уже на нужном HTTPS-домене, идём напрямую на /dashboard;
+//  - если мы на http://IP:5000 (типичный случай онбординга), запрашиваем
+//    одноразовый handoff-токен и переходим через /auth/onboarding-handoff
+//    — иначе на новом origin'е куки сессии не доедут, и юзера выкинет
+//    на форму логина.
+async function buildRedirectURL(readyUrl) {
+  let target;
+  try {
+    target = new URL(readyUrl);
+  } catch (e) {
+    // На всякий случай — если бэкенд вернул кривой URL, просто используем как есть.
+    return readyUrl;
+  }
+
+  if (window.location.hostname === target.hostname &&
+      window.location.protocol === target.protocol) {
+    // Тот же origin — handoff не нужен.
+    return readyUrl;
+  }
+
+  try {
+    const tokenResp = await fetch('/api/system/onboarding-handoff', {
+      method: 'POST',
+      credentials: 'same-origin',
+    });
+    if (tokenResp.ok) {
+      const t = await tokenResp.json();
+      if (t && t.token) {
+        return target.origin + '/auth/onboarding-handoff?token=' +
+               encodeURIComponent(t.token);
+      }
+    }
+  } catch (e) {
+    // Молча игнорим — внизу будет фоллбэк.
+  }
+
+  // Если токен не получили — отдаём исходный URL. Юзер увидит форму логина
+  // на новом домене, но manual-link под спиннером покажет тот же URL —
+  // не потеряется.
+  return readyUrl;
+}
+
+async function checkReady() {
+  if (redirecting) return;
+  try {
+    const r = await fetch('/api/system/https-status', { credentials: 'same-origin' });
+    if (!r.ok) return;
+    const data = await r.json();
+    if (data && data.ready) {
+      redirecting = true;
+      msg.textContent = 'Сертификат получен! Переходим…';
+      statusBox.classList.add('ok');
+      bar.style.width = '100%';
+      spin.style.borderTopColor = '#4ade80';
+      spin.style.animationDuration = '.3s';
+      manualLink.textContent = 'Открыть ' + data.url;
+      manualLink.href = data.url;
+      manualLink.classList.add('highlight');
+
+      const finalUrl = await buildRedirectURL(data.url);
+      // Обновим и кнопку — на случай, если редирект упрётся.
+      manualLink.href = finalUrl;
+      setTimeout(() => { window.location.href = finalUrl; }, 800);
+    } else if (data && data.status) {
+      msg.textContent = data.status;
+    }
+  } catch (e) {
+    msg.textContent = 'Проверяем…';
+  }
+}
+
+// Первая проверка через 5 секунд, потом каждые 3 секунды.
+setTimeout(() => {
+  checkReady();
+  setInterval(checkReady, 3000);
+}, 5000);
+
+// Аварийный таймаут — если за 2 минуты сертификата нет, делаем manual-link
+// заметным и подсказываем юзеру.
+setTimeout(() => {
+  if (redirecting) return;
+  msg.textContent = 'Занимает дольше обычного.';
+  manualLink.classList.add('highlight');
+  manualLink.textContent = 'Попробовать открыть https://' + domain + ' вручную';
+}, maxSec * 1000);
+</script>
+</body>
+</html>

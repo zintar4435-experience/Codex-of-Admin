@@ -1,0 +1,1162 @@
+{% extends "base.html" %}
+{% block title %}Сервер — ProxyPanel{% endblock %}
+{% block page_title %}Сервер{% endblock %}
+{% block content %}
+
+<style>
+  /* ── Tabs (локальные стили; если табы понадобятся ещё где-то — вынести в base.html) ── */
+  .tabs {
+    display: flex;
+    gap: 4px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 24px;
+  }
+  .tab {
+    background: none;
+    border: none;
+    color: var(--text-dim);
+    font-family: var(--mono);
+    font-size: 12px;
+    padding: 10px 18px;
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    transition: all .15s;
+    margin-bottom: -1px;
+  }
+  .tab:hover { color: var(--text); }
+  .tab.active {
+    color: var(--accent);
+    border-bottom-color: var(--accent);
+  }
+  .tab i { margin-right: 6px; }
+
+  /* Status pills внутри карточек */
+  .svc-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 13px;
+  }
+  .svc-meta {
+    margin-left: auto;
+    font-size: 11px;
+    color: var(--text-dim);
+  }
+
+  /* Log viewer */
+  .log-toolbar {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    margin-bottom: 12px;
+  }
+  .log-toolbar select { width: 200px; }
+  #log-content {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 14px 16px;
+    font-family: var(--mono);
+    font-size: 11px;
+    height: calc(100vh - 320px);
+    min-height: 320px;
+    overflow-y: auto;
+    color: var(--text);
+    white-space: pre-wrap;
+    word-break: break-all;
+  }
+
+  .resource-bar {
+    height: 6px;
+    background: var(--border);
+    border-radius: 3px;
+    overflow: hidden;
+    margin-top: 6px;
+  }
+  .resource-bar > div {
+    height: 100%;
+    background: var(--accent);
+    transition: width .3s;
+  }
+  .resource-bar > div.warn { background: var(--warn); }
+  .resource-bar > div.danger { background: var(--danger); }
+
+  /* ── Audit panel ── */
+  .audit-toolbar {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    margin-bottom: 16px;
+    flex-wrap: wrap;
+  }
+  .audit-toolbar select { width: auto; min-width: 140px; }
+  .audit-toolbar input  { width: 180px; }
+  .audit-meta {
+    font-size: 11px;
+    color: var(--text-dim);
+    margin-left: auto;
+    font-variant-numeric: tabular-nums;
+  }
+  table.audit-table td {
+    padding: 10px 12px;
+    font-size: 12px;
+  }
+  .audit-action {
+    font-family: var(--mono);
+    font-size: 11px;
+    padding: 2px 8px;
+    border-radius: var(--radius-sm);
+    background: rgba(255,255,255,.04);
+    color: var(--text);
+    white-space: nowrap;
+  }
+  .audit-action.danger  { color: var(--danger); background: rgba(239,68,68,.1); }
+  .audit-action.warn    { color: var(--warn);   background: rgba(245,158,11,.1); }
+  .audit-action.accent  { color: var(--accent); background: rgba(16,185,129,.1); }
+  .audit-action.info    { color: var(--accent2);background: rgba(56,189,248,.1); }
+  .audit-time {
+    font-family: var(--mono);
+    color: var(--text-dim);
+    font-size: 11px;
+    white-space: nowrap;
+  }
+  .audit-user {
+    color: var(--text-bright);
+    font-weight: 500;
+  }
+  .audit-user.system { color: var(--text-mute); font-style: italic; }
+  .audit-target {
+    color: var(--text);
+  }
+  .audit-target code {
+    font-size: 11px;
+  }
+  .audit-ip {
+    font-family: var(--mono);
+    color: var(--text-dim);
+    font-size: 11px;
+  }
+  .audit-pagination {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-top: 14px;
+    font-size: 11px;
+    color: var(--text-dim);
+  }
+
+  /* ── Theme picker ── */
+  .theme-option {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 14px;
+    cursor: pointer;
+    text-align: left;
+    font-family: inherit;
+    transition: border-color .15s, transform .08s;
+    color: var(--text);
+  }
+  .theme-option:hover { border-color: var(--text-dim); }
+  .theme-option.active {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 1px var(--accent);
+  }
+  .theme-option:active { transform: scale(.99); }
+  .theme-preview {
+    height: 80px;
+    border-radius: var(--radius-sm);
+    margin-bottom: 12px;
+    position: relative;
+    overflow: hidden;
+    border: 1px solid var(--border);
+  }
+  .theme-preview-card {
+    position: absolute;
+    inset: 12px;
+    background: rgba(255,255,255,.05);
+    border: 1px solid rgba(255,255,255,.08);
+    border-radius: 4px;
+  }
+  .theme-preview-card.codex {
+    background: #131a17;
+    border: 1px solid rgba(255,255,255,.08);
+    border-radius: 8px;
+  }
+  .theme-preview-card.glass {
+    background: rgba(255,255,255,.10);
+    border: 0.5px solid rgba(255,255,255,.22);
+    border-radius: 8px;
+    backdrop-filter: blur(10px) saturate(140%);
+  }
+  .theme-name {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-bright);
+    margin-bottom: 4px;
+  }
+  .theme-desc {
+    font-size: 11px;
+    color: var(--text-dim);
+    line-height: 1.5;
+  }
+  .ip-field-wrap { position: relative; }
+  .ip-field-wrap input { padding-right: 40px; }
+  .ip-field-wrap input.ip-blurred { filter: blur(5px); user-select: none; }
+  .ip-eye {
+    position: absolute; right: 8px; top: 50%; transform: translateY(-50%);
+    background: none; border: none; color: var(--text-dim); cursor: pointer;
+    padding: 4px; font-size: 16px; line-height: 1;
+  }
+  .ip-eye:hover { color: var(--text-bright); }
+</style>
+
+<!-- ─── Tabs ─── -->
+<div class="tabs">
+  <button class="tab" id="tab-status" onclick="switchTab('status')">
+    <i class="bi bi-activity"></i>Статус
+  </button>
+  <button class="tab" id="tab-config" onclick="switchTab('config')">
+    <i class="bi bi-sliders"></i>Конфигурация
+  </button>
+  <button class="tab" id="tab-logs" onclick="switchTab('logs')">
+    <i class="bi bi-journal-text"></i>Логи
+  </button>
+  <button class="tab" id="tab-audit" onclick="switchTab('audit')">
+    <i class="bi bi-shield-check"></i>Аудит
+  </button>
+</div>
+
+<!-- ═══════════════════════════════════════════════ -->
+<!-- ─── PANEL: STATUS ─── -->
+<!-- ═══════════════════════════════════════════════ -->
+<div id="panel-status">
+
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
+
+    <!-- Xray -->
+    <div class="card">
+      <div class="card-header">
+        <span class="card-title">Xray Core</span>
+        <button class="btn btn-outline btn-sm" onclick="restartSvc('xray')">
+          <i class="bi bi-arrow-repeat"></i> Restart
+        </button>
+      </div>
+      <div class="svc-row" id="xray-state">
+        <span class="dot dot-grey"></span><span class="text-dim">Загрузка…</span>
+      </div>
+      <div id="xray-version-row" style="margin-top:14px;font-size:12px"></div>
+    </div>
+
+    <!-- Caddy -->
+    <div class="card">
+      <div class="card-header">
+        <span class="card-title">Caddy</span>
+        <button class="btn btn-outline btn-sm" onclick="restartSvc('caddy')">
+          <i class="bi bi-arrow-repeat"></i> Restart
+        </button>
+      </div>
+      <div class="svc-row" id="caddy-state">
+        <span class="dot dot-grey"></span><span class="text-dim">Загрузка…</span>
+      </div>
+      <div id="caddy-api-row" style="margin-top:14px;font-size:12px;color:var(--text-dim)"></div>
+    </div>
+
+  </div>
+
+  <!-- Ресурсы сервера -->
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">Ресурсы сервера</span>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px">
+      <div>
+        <div class="flex justify-between" style="font-size:11px">
+          <span class="text-dim">Load average</span>
+          <span id="load-avg" class="text-bright">—</span>
+        </div>
+        <div class="form-text" style="margin-top:6px">
+          1м / 5м / 15м — среднее число процессов в очереди.
+          Сравнивайте с числом ядер CPU.
+        </div>
+      </div>
+      <div>
+        <div class="flex justify-between" style="font-size:11px;margin-bottom:2px">
+          <span class="text-dim">Диск</span>
+          <span id="disk-pct" class="text-bright">—</span>
+        </div>
+        <div class="resource-bar"><div id="disk-bar" style="width:0%"></div></div>
+        <div id="disk-detail" class="form-text" style="margin-top:6px">—</div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- ═══════════════════════════════════════════════ -->
+<!-- ─── PANEL: CONFIG ─── -->
+<!-- ═══════════════════════════════════════════════ -->
+<div id="panel-config" class="hidden">
+
+  <div class="flex justify-between items-center" style="margin-bottom:20px">
+    <div class="text-dim" style="font-size:12px">
+      Изменения применяются после нажатия «Применить». Xray и Caddy перезапускаются автоматически только при необходимости.
+    </div>
+    <button class="btn btn-primary" onclick="saveConfig()">
+      <i class="bi bi-check2"></i> Применить
+    </button>
+  </div>
+
+  <!-- Панель -->
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">Панель</span>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+      <div class="form-group">
+        <label class="form-label">Домен панели</label>
+        <input type="text" class="form-control" id="c-panel-domain" placeholder="panel.example.com">
+        <div class="form-text">После изменения Caddy перезапустится автоматически.</div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Email для Let's Encrypt</label>
+        <input type="text" class="form-control" id="c-acme-email" placeholder="admin@example.com">
+        <div class="form-text">Используется при выпуске TLS-сертификатов.</div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">IP сервера</label>
+        <div class="ip-field-wrap">
+          <input type="text" class="form-control ip-blurred" id="c-server-ip" placeholder="1.2.3.4">
+          <button type="button" class="ip-eye" id="ip-eye-btn" onclick="toggleIpReveal()" title="Показать на время"><i class="bi bi-eye"></i></button>
+        </div>
+        <div class="form-text">Текущий IP этого сервера (скрыт; нажмите глаз, чтобы показать на время). Подставляется в ссылки клиентов, если у inbound нет своего домена.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Xray -->
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">Xray</span>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px">
+      <div class="form-group">
+        <label class="form-label">Уровень логов</label>
+        <select class="form-control" id="c-xray-log">
+          <option value="none">none — отключены</option>
+          <option value="error">error — только ошибки</option>
+          <option value="warning">warning — предупреждения</option>
+          <option value="info">info — подробно</option>
+          <option value="debug">debug — отладка</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Domain strategy</label>
+        <select class="form-control" id="c-xray-strategy">
+          <option value="AsIs">AsIs — без резолвинга</option>
+          <option value="IPIfNonMatch">IPIfNonMatch — рекомендуется</option>
+          <option value="IPOnDemand">IPOnDemand — всегда резолвить</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Stats API порт</label>
+        <input type="number" class="form-control" id="c-xray-port" placeholder="10085">
+        <div class="form-text">Локальный порт для сбора статистики. Менять не нужно.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Внешний вид: переключатель темы оформления.
+       Тема хранится в localStorage и применяется до загрузки CSS
+       через анти-FOUC скрипт в head base.html. -->
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">Внешний вид</span>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:14px">
+      <button type="button" class="theme-option" data-theme-name="slate" onclick="setTheme('slate')">
+        <div class="theme-preview" style="background: linear-gradient(135deg, #0b1014 0%, #111720 60%, #10b981 200%)">
+          <div class="theme-preview-card"></div>
+        </div>
+        <div class="theme-name">Slate</div>
+        <div class="theme-desc">Текущий стиль. Спокойные slate-тона, emerald-акцент, плоские карточки. Меньше нагрузки на глаза при длительной работе.</div>
+      </button>
+      <button type="button" class="theme-option" data-theme-name="codex" onclick="setTheme('codex')">
+        <div class="theme-preview" style="background: radial-gradient(120% 80% at 80% 0%, #11241d 0%, #0a100d 60%)">
+          <div class="theme-preview-card codex"></div>
+        </div>
+        <div class="theme-name">Codex</div>
+        <div class="theme-desc">Тёмно-изумрудная тема из дизайна Codex of Admin: глубокий градиентный фон, мятный акцент, аккуратные карточки.</div>
+      </button>
+      <button type="button" class="theme-option" data-theme-name="glass" onclick="setTheme('glass')">
+        <div class="theme-preview" style="background: radial-gradient(60% 60% at 20% 10%, rgba(34,108,138,.7), transparent 60%), radial-gradient(60% 60% at 90% 90%, rgba(150,52,108,.6), transparent 60%), #080d11">
+          <div class="theme-preview-card glass"></div>
+        </div>
+        <div class="theme-name">Glass</div>
+        <div class="theme-desc">Liquid Glass: цветной фон сквозь матовые панели, мятный акцент. Стиль из дизайна Codex. Тема по умолчанию.</div>
+      </button>
+    </div>
+  </div>
+
+  <!-- Безопасность: смена пароля -->
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">Безопасность</span>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:12px;align-items:end">
+      <div class="form-group" style="margin-bottom:0">
+        <label class="form-label">Текущий пароль</label>
+        <input type="password" class="form-control" id="c-cur-pass" autocomplete="current-password">
+      </div>
+      <div class="form-group" style="margin-bottom:0">
+        <label class="form-label">Новый пароль</label>
+        <input type="password" class="form-control" id="c-new-pass" autocomplete="new-password">
+      </div>
+      <div class="form-group" style="margin-bottom:0">
+        <label class="form-label">Повторите новый</label>
+        <input type="password" class="form-control" id="c-new-pass2" autocomplete="new-password">
+      </div>
+      <button class="btn btn-outline" onclick="changePassword()">
+        <i class="bi bi-key"></i> Сменить
+      </button>
+    </div>
+    <div class="form-text" style="margin-top:8px">Минимум 10 символов.</div>
+  </div>
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">Двойная аутентификация (2FA)</span>
+      <span class="badge" id="twofa-badge">—</span>
+    </div>
+    <div class="form-text" style="margin-bottom:14px">
+      Дополнительный код из приложения (Google Authenticator, Authy, 1Password и т.п.)
+      при входе в панель. Даже зная пароль, без кода войти нельзя.
+    </div>
+
+    <!-- Выключена -->
+    <div id="twofa-disabled" class="hidden">
+      <button class="btn btn-primary btn-sm" onclick="twofaSetup()"><i class="bi bi-shield-lock"></i> Включить 2FA</button>
+    </div>
+
+    <!-- Мастер подключения -->
+    <div id="twofa-setup" class="hidden">
+      <div style="display:flex;gap:20px;flex-wrap:wrap;align-items:flex-start">
+        <div id="twofa-qr" style="background:#fff;padding:12px;border-radius:var(--radius)"></div>
+        <div style="flex:1;min-width:220px">
+          <div class="form-text">1. Отсканируйте QR-код в приложении-аутентификаторе.</div>
+          <div class="form-text" style="margin:8px 0">Или введите ключ вручную:</div>
+          <div class="code-block" id="twofa-secret" onclick="copyText(this.textContent)" style="margin-bottom:14px"></div>
+          <label class="form-label">2. Введите 6-значный код из приложения</label>
+          <input type="text" class="form-control" id="twofa-code" inputmode="numeric" maxlength="6" placeholder="000000" autocomplete="one-time-code">
+          <div class="flex gap-2" style="margin-top:12px">
+            <button class="btn btn-primary btn-sm" onclick="twofaEnable()">Подтвердить и включить</button>
+            <button class="btn btn-outline btn-sm" onclick="twofaCancel()">Отмена</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Резервные коды (показываются один раз) -->
+    <div id="twofa-recovery" class="hidden">
+      <div class="badge badge-active" style="margin-bottom:10px"><i class="bi bi-check-lg"></i> 2FA включена</div>
+      <div class="form-text" style="margin-bottom:10px">
+        Сохраните резервные коды в надёжном месте. Каждый можно использовать один раз,
+        если нет доступа к приложению. Больше они не будут показаны.
+      </div>
+      <div class="code-block" id="twofa-recovery-list" style="white-space:pre-wrap;line-height:1.8"></div>
+      <button class="btn btn-outline btn-sm" style="margin-top:12px" onclick="loadTwofa()">Я сохранил коды</button>
+    </div>
+
+    <!-- Включена -->
+    <div id="twofa-enabled" class="hidden">
+      <div class="badge badge-active" style="margin-bottom:10px"><i class="bi bi-shield-check"></i> Включена</div>
+      <div class="form-text" id="twofa-recovery-left" style="margin-bottom:12px"></div>
+      <button class="btn btn-danger btn-sm" onclick="twofaDisable()"><i class="bi bi-shield-x"></i> Отключить 2FA</button>
+    </div>
+  </div>
+
+</div>
+
+<!-- ═══════════════════════════════════════════════ -->
+<!-- ─── PANEL: LOGS ─── -->
+<!-- ═══════════════════════════════════════════════ -->
+<div id="panel-logs" class="hidden">
+
+  <div class="log-toolbar">
+    <select class="form-control" id="log-source" onchange="loadLog()">
+      <option value="xray-error">Xray — error.log</option>
+      <option value="xray-access">Xray — access.log</option>
+      <option value="caddy">Caddy — journalctl</option>
+    </select>
+    <select class="form-control" id="log-lines" onchange="loadLog()" style="width:140px">
+      <option value="100">100 строк</option>
+      <option value="500">500 строк</option>
+      <option value="1000">1000 строк</option>
+      <option value="5000">5000 строк</option>
+    </select>
+    <label style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--text-dim);cursor:pointer">
+      <input type="checkbox" id="log-autorefresh" checked> авто (10с)
+    </label>
+    <div style="margin-left:auto;display:flex;gap:8px">
+      <button class="btn btn-outline btn-sm" onclick="loadLog()">
+        <i class="bi bi-arrow-clockwise"></i> Обновить
+      </button>
+      <button class="btn btn-outline btn-sm" onclick="downloadLog()">
+        <i class="bi bi-download"></i> Скачать
+      </button>
+    </div>
+  </div>
+
+  <pre id="log-content">Загрузка…</pre>
+
+</div>
+
+<!-- ═══════════════════════════════════════════════ -->
+<!-- ─── PANEL: AUDIT ─── -->
+<!-- ═══════════════════════════════════════════════ -->
+<div id="panel-audit" class="hidden">
+
+  <div class="audit-toolbar">
+    <select class="form-control" id="audit-action-filter" onchange="loadAudit(true)">
+      <option value="">Все действия</option>
+      <option value="auth.">Авторизация</option>
+      <option value="inbound.">Inbounds</option>
+      <option value="client.">Клиенты</option>
+      <option value="rule.">Правила маршрута</option>
+      <option value="outbound.">Outbounds</option>
+      <option value="split.">Сплит-туннель</option>
+      <option value="service.">Перезапуск сервисов</option>
+      <option value="xray.">Xray-обновления</option>
+      <option value="settings.">Настройки</option>
+      <option value="password.">Смена пароля</option>
+    </select>
+    <input type="text" class="form-control" id="audit-user-filter"
+           placeholder="Фильтр по юзеру…" onchange="loadAudit(true)">
+    <button class="btn btn-outline btn-sm" onclick="loadAudit(true)">
+      <i class="bi bi-arrow-clockwise"></i> Обновить
+    </button>
+    <button class="btn btn-outline btn-sm" onclick="downloadAudit()">
+      <i class="bi bi-download"></i> Скачать
+    </button>
+    <span class="audit-meta" id="audit-meta">—</span>
+  </div>
+
+  <div class="card" style="padding: 4px 0">
+    <div class="table-wrap">
+      <table class="audit-table">
+        <thead>
+          <tr>
+            <th style="width:140px">Время</th>
+            <th style="width:120px">Юзер</th>
+            <th style="width:180px">Действие</th>
+            <th>Цель</th>
+            <th style="width:130px">IP</th>
+          </tr>
+        </thead>
+        <tbody id="audit-tbody">
+          <tr><td colspan="5" style="text-align:center;color:var(--text-dim);padding:30px">Загрузка…</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="audit-pagination">
+    <span id="audit-page-info">—</span>
+    <div class="flex gap-2">
+      <button class="btn btn-outline btn-sm" id="audit-prev" onclick="auditPrev()">← Назад</button>
+      <button class="btn btn-outline btn-sm" id="audit-next" onclick="auditNext()">Вперёд →</button>
+    </div>
+  </div>
+
+</div>
+
+{% endblock %}
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
+<script>
+// ─────────────────────────────────────────────────
+// Tabs
+// ─────────────────────────────────────────────────
+const TABS = ['status', 'config', 'logs', 'audit'];
+let statusTimer = null;
+let logTimer = null;
+
+function switchTab(name) {
+  if (!TABS.includes(name)) name = 'status';
+
+  TABS.forEach(t => {
+    document.getElementById('tab-' + t).classList.toggle('active', t === name);
+    document.getElementById('panel-' + t).classList.toggle('hidden', t !== name);
+  });
+
+  // Сохраняем активный таб в hash, чтобы прямые ссылки работали (/server#logs)
+  if (location.hash.slice(1) !== name) {
+    history.replaceState(null, '', '#' + name);
+  }
+
+  // Гасим все таймеры — потом включаем нужные
+  clearInterval(statusTimer); statusTimer = null;
+  clearInterval(logTimer);    logTimer = null;
+
+  if (name === 'status') {
+    loadStatus();
+    loadXrayVersions();
+    statusTimer = setInterval(loadStatus, 5000);
+  } else if (name === 'config') {
+    loadConfig();
+    updateThemePickerUI();
+    loadTwofa();
+  } else if (name === 'logs') {
+    loadLog();
+    if (document.getElementById('log-autorefresh').checked) {
+      logTimer = setInterval(loadLog, 10000);
+    }
+  } else if (name === 'audit') {
+    loadAudit(true);   // reset=true — на сброс пагинации при первой загрузке
+  }
+}
+
+// ─────────────────────────────────────────────────
+// STATUS
+// ─────────────────────────────────────────────────
+async function loadStatus() {
+  try {
+    const s = await api('GET', '/api/system/status');
+
+    // Xray
+    const xRunning = s.xray.active;
+    document.getElementById('xray-state').innerHTML = `
+      <span class="dot ${xRunning ? 'dot-green' : 'dot-red'}"></span>
+      <span class="${xRunning ? 'text-accent' : 'text-danger'}">${xRunning ? 'running' : 'stopped'}</span>
+      <span class="svc-meta">version ${s.xray.version || '—'}</span>
+    `;
+
+    // Caddy
+    const cRunning = s.caddy.active;
+    document.getElementById('caddy-state').innerHTML = `
+      <span class="dot ${cRunning ? 'dot-green' : 'dot-red'}"></span>
+      <span class="${cRunning ? 'text-accent' : 'text-danger'}">${cRunning ? 'running' : 'stopped'}</span>
+    `;
+    document.getElementById('caddy-api-row').innerHTML = s.caddy.api_reachable
+      ? '<span class="text-accent">●</span> Admin API доступен'
+      : '<span class="text-danger">●</span> Admin API недоступен';
+
+    // Resources
+    const la = s.system.load_avg || [0,0,0];
+    document.getElementById('load-avg').textContent = la.map(x => x.toFixed(2)).join(' / ');
+
+    const total = s.system.disk_total || 0;
+    const used  = s.system.disk_used  || 0;
+    if (total > 0) {
+      const pct = (used / total) * 100;
+      document.getElementById('disk-pct').textContent = pct.toFixed(0) + '%';
+      const bar = document.getElementById('disk-bar');
+      bar.style.width = pct + '%';
+      bar.className = pct > 90 ? 'danger' : pct > 75 ? 'warn' : '';
+      document.getElementById('disk-detail').textContent =
+        `${fmtBytes(used)} из ${fmtBytes(total)}`;
+    } else {
+      document.getElementById('disk-pct').textContent = '—';
+      document.getElementById('disk-detail').textContent = 'нет данных';
+    }
+  } catch(e) {
+    // Без громких toast'ов на фоне — просто оставляем последнее значение видимым.
+    console.warn('loadStatus failed:', e);
+  }
+}
+
+async function loadXrayVersions() {
+  const row = document.getElementById('xray-version-row');
+  row.innerHTML = '<span class="text-dim">Проверка обновлений…</span>';
+  try {
+    const v = await api('GET', '/api/system/xray/versions');
+    if (v.update_available) {
+      row.innerHTML = `
+        <div style="background:rgba(245, 158, 11,.08);border:1px solid rgba(245, 158, 11,.25);
+                    border-radius:var(--radius);padding:10px 14px;display:flex;align-items:center;gap:12px">
+          <i class="bi bi-arrow-up-circle" style="color:var(--warn)"></i>
+          <span>Доступна <strong class="text-bright">v${v.latest}</strong>
+            <span class="text-dim">(текущая v${v.current})</span></span>
+          <button class="btn btn-primary btn-sm" id="btn-xray-update" onclick="updateXray()" style="margin-left:auto">
+            Обновить
+          </button>
+        </div>`;
+    } else {
+      row.innerHTML = `<span class="text-dim">Установлена последняя версия (v${v.current})</span>`;
+    }
+  } catch(e) {
+    row.innerHTML = `<span class="text-dim">Не удалось проверить: ${e.message}</span>`;
+  }
+}
+
+async function updateXray() {
+  const btn = document.getElementById('btn-xray-update');
+  if (btn) { btn.disabled = true; btn.textContent = 'Загрузка…'; }
+  try {
+    const r = await api('POST', '/api/system/xray/update');
+    toast(r.message || 'Xray обновлён');
+    await loadStatus();
+    await loadXrayVersions();
+  } catch(e) {
+    toast(e.message, 'error');
+    if (btn) { btn.disabled = false; btn.textContent = 'Обновить'; }
+  }
+}
+
+async function restartSvc(name) {
+  try {
+    const r = await api('POST', `/api/system/restart/${name}`);
+    toast(r.message || `${name} перезапущен`);
+    await loadStatus();
+  } catch(e) { toast(e.message, 'error'); }
+}
+
+// ─────────────────────────────────────────────────
+// CONFIG
+// ─────────────────────────────────────────────────
+let configSnapshot = {};    // что было при загрузке — нужно для понимания "что менялось"
+
+async function loadConfig() {
+  try {
+    const s = await api('GET', '/api/system/settings');
+    document.getElementById('c-panel-domain').value   = s.panel_domain || '';
+    document.getElementById('c-acme-email').value     = s.acme_email || '';
+    document.getElementById('c-server-ip').value      = s.server_ip || '';
+    // Если IP не задан вручную — подставляем определённый автоматически.
+    loadDetectedIp();
+    document.getElementById('c-xray-log').value       = s.xray_log_level || 'warning';
+    document.getElementById('c-xray-strategy').value  = s.xray_domain_strategy || 'IPIfNonMatch';
+    document.getElementById('c-xray-port').value      = s.xray_api_port || '10085';
+
+    // Снимок, чтобы после сохранения понять, какие сервисы рестартить
+    configSnapshot = {
+      panel_domain:  s.panel_domain || '',
+      acme_email:    s.acme_email || '',
+    };
+  } catch(e) { toast(e.message, 'error'); }
+}
+
+// Подгрузить определённый IP сервера, если поле пустое.
+async function loadDetectedIp() {
+  const el = document.getElementById('c-server-ip');
+  if (el.value.trim()) return;
+  try {
+    const r = await api('GET', '/api/system/server-ip');
+    if (r.detected && !el.value.trim()) el.value = r.detected;
+  } catch (e) { /* тихо: определение IP не критично */ }
+}
+
+// Показать IP на время (по нажатию глаза), затем снова заблюрить.
+let ipRevealTimer = null;
+function setIpEye(revealed) {
+  const el = document.getElementById('c-server-ip');
+  const icon = document.querySelector('#ip-eye-btn i');
+  if (revealed) { el.classList.remove('ip-blurred'); if (icon) icon.className = 'bi bi-eye-slash'; }
+  else          { el.classList.add('ip-blurred');    if (icon) icon.className = 'bi bi-eye'; }
+}
+function toggleIpReveal() {
+  const el = document.getElementById('c-server-ip');
+  const isBlurred = el.classList.contains('ip-blurred');
+  clearTimeout(ipRevealTimer);
+  if (isBlurred) {
+    setIpEye(true);
+    ipRevealTimer = setTimeout(() => setIpEye(false), 8000);  // авто-скрытие через 8 сек
+  } else {
+    setIpEye(false);
+  }
+}
+// При редактировании поля показываем его, после ухода — снова блюр.
+document.getElementById('c-server-ip').addEventListener('focus', () => { clearTimeout(ipRevealTimer); setIpEye(true); });
+document.getElementById('c-server-ip').addEventListener('blur',  () => { setIpEye(false); });
+
+// ─────────────────────────────────────────────────
+// Двойная аутентификация (2FA)
+// ─────────────────────────────────────────────────
+function twofaShow(view) {
+  ['twofa-disabled','twofa-setup','twofa-recovery','twofa-enabled'].forEach(id =>
+    document.getElementById(id).classList.toggle('hidden', id !== view));
+}
+async function loadTwofa() {
+  try {
+    const s = await api('GET', '/api/system/2fa/status');
+    const badge = document.getElementById('twofa-badge');
+    if (s.enabled) {
+      badge.textContent = 'включена'; badge.className = 'badge badge-active';
+      document.getElementById('twofa-recovery-left').textContent =
+        `Осталось резервных кодов: ${s.recovery_left}.`;
+      twofaShow('twofa-enabled');
+    } else {
+      badge.textContent = 'выключена'; badge.className = 'badge badge-inactive';
+      twofaShow('twofa-disabled');
+    }
+  } catch (e) { /* без фанатизма */ }
+}
+async function twofaSetup() {
+  try {
+    const r = await api('POST', '/api/system/2fa/setup', {});
+    document.getElementById('twofa-secret').textContent = r.secret;
+    const box = document.getElementById('twofa-qr');
+    box.innerHTML = '';
+    new QRCode(box, { text: r.uri, width: 180, height: 180, colorDark: '#000', colorLight: '#fff', correctLevel: QRCode.CorrectLevel.M });
+    document.getElementById('twofa-code').value = '';
+    twofaShow('twofa-setup');
+  } catch (e) { toast(e.message, 'error'); }
+}
+async function twofaEnable() {
+  const code = document.getElementById('twofa-code').value.trim();
+  if (!/^\d{6}$/.test(code)) { toast('Введите 6-значный код', 'error'); return; }
+  try {
+    const r = await api('POST', '/api/system/2fa/enable', { code });
+    document.getElementById('twofa-recovery-list').textContent = (r.recovery_codes || []).join('\n');
+    twofaShow('twofa-recovery');
+    toast('2FA включена');
+  } catch (e) { toast(e.message, 'error'); }
+}
+function twofaCancel() { loadTwofa(); }
+async function twofaDisable() {
+  const pw = prompt('Введите текущий пароль для отключения 2FA:');
+  if (pw === null) return;
+  try {
+    await api('POST', '/api/system/2fa/disable', { password: pw });
+    toast('2FA отключена');
+    loadTwofa();
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+async function saveConfig() {
+  const payload = {
+    panel_domain:         document.getElementById('c-panel-domain').value.trim(),
+    acme_email:           document.getElementById('c-acme-email').value.trim(),
+    server_ip:            document.getElementById('c-server-ip').value.trim(),
+    xray_log_level:       document.getElementById('c-xray-log').value,
+    xray_domain_strategy: document.getElementById('c-xray-strategy').value,
+    xray_api_port:        document.getElementById('c-xray-port').value,
+  };
+
+  // Caddy перезапускаем только если действительно поменялся домен или ACME-email.
+  // Xray-настройки бэкенд применит сам (см. api/system.py:update_settings → XRAY_SETTINGS).
+  const needCaddyRestart =
+    payload.panel_domain !== configSnapshot.panel_domain ||
+    payload.acme_email   !== configSnapshot.acme_email;
+
+  try {
+    await api('PUT', '/api/system/settings', payload);
+    if (needCaddyRestart) {
+      await api('POST', '/api/system/restart/caddy');
+      toast('Настройки сохранены, Caddy перезапущен');
+    } else {
+      toast('Настройки сохранены');
+    }
+    // Обновляем снимок — следующая правка опять сравнивает с актуальным состоянием.
+    configSnapshot = {
+      panel_domain: payload.panel_domain,
+      acme_email:   payload.acme_email,
+    };
+  } catch(e) { toast(e.message, 'error'); }
+}
+
+async function changePassword() {
+  const cur  = document.getElementById('c-cur-pass').value;
+  const np1  = document.getElementById('c-new-pass').value;
+  const np2  = document.getElementById('c-new-pass2').value;
+  if (!cur)              { toast('Введите текущий пароль', 'error'); return; }
+  if (!np1)              { toast('Введите новый пароль', 'error'); return; }
+  if (np1 !== np2)       { toast('Новые пароли не совпадают', 'error'); return; }
+  if (np1.length < 10)   { toast('Минимум 10 символов', 'error'); return; }
+  try {
+    await api('POST', '/api/system/change-password', {
+      current_password: cur,
+      password: np1,
+    });
+    toast('Пароль изменён');
+    ['c-cur-pass','c-new-pass','c-new-pass2'].forEach(id =>
+      document.getElementById(id).value = ''
+    );
+  } catch(e) { toast(e.message, 'error'); }
+}
+
+// ─────────────────────────────────────────────────
+// THEME SWITCHER
+// Тема — клиентская настройка, в БД не идёт. Хранится в localStorage
+// и применяется до рендера через анти-FOUC скрипт в head base.html.
+// ─────────────────────────────────────────────────
+function getCurrentTheme() {
+  const attr = document.documentElement.getAttribute('data-theme');
+  return attr || 'slate';
+}
+
+function setTheme(name) {
+  if (name === 'slate') {
+    document.documentElement.removeAttribute('data-theme');
+  } else {
+    document.documentElement.setAttribute('data-theme', name);
+  }
+  try { localStorage.setItem('panel-theme', name); } catch(e) {}
+  updateThemePickerUI();
+  // Лёгкий feedback — без всплывающего toast'а, потому что эффект и так
+  // мгновенно виден на экране.
+}
+
+function updateThemePickerUI() {
+  const active = getCurrentTheme();
+  document.querySelectorAll('.theme-option').forEach(el => {
+    el.classList.toggle('active', el.dataset.themeName === active);
+  });
+}
+
+// ─────────────────────────────────────────────────
+// LOGS
+// ─────────────────────────────────────────────────
+async function loadLog() {
+  const source = document.getElementById('log-source').value;
+  const lines  = document.getElementById('log-lines').value;
+  const el     = document.getElementById('log-content');
+
+  // Маппинг ui-source → backend endpoint + параметры
+  let url;
+  if (source === 'xray-error')       url = `/api/system/logs/xray?type=error&lines=${lines}`;
+  else if (source === 'xray-access') url = `/api/system/logs/xray?type=access&lines=${lines}`;
+  else                                url = `/api/system/logs/caddy?lines=${lines}`;
+
+  try {
+    const r = await api('GET', url);
+    // Сохраняем позицию скролла: если пользователь не у дна — не перематываем.
+    // Иначе — auto-stick к низу (как в журнале).
+    const atBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 30;
+    el.textContent = r.log || '(пусто)';
+    if (atBottom) el.scrollTop = el.scrollHeight;
+  } catch(e) {
+    el.textContent = 'Ошибка загрузки: ' + e.message;
+  }
+}
+
+function downloadLog() {
+  const source = document.getElementById('log-source').value;
+  const text   = document.getElementById('log-content').textContent;
+  const blob   = new Blob([text], { type: 'text/plain;charset=utf-8' });
+  const url    = URL.createObjectURL(blob);
+  const a      = document.createElement('a');
+  const ts     = new Date().toISOString().slice(0, 19).replace(/[T:]/g, '-');
+  a.href = url;
+  a.download = `${source}-${ts}.log`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+document.getElementById('log-autorefresh').addEventListener('change', e => {
+  clearInterval(logTimer); logTimer = null;
+  if (e.target.checked) {
+    logTimer = setInterval(loadLog, 10000);
+  }
+});
+
+// ─────────────────────────────────────────────────
+// AUDIT
+// ─────────────────────────────────────────────────
+const AUDIT_PAGE_SIZE = 50;
+let auditOffset = 0;
+let auditTotal  = 0;
+let auditCache  = [];   // последние полученные записи — нужно для downloadAudit
+
+// Человекочитаемые названия действий и их цвета.
+// Если действия нет в карте — отрисуется raw-имя без подкраски.
+const ACTION_MAP = {
+  'auth.login':            { label: 'Вход',                   cls: 'accent' },
+  'auth.login_failed':     { label: 'Неудачный вход',         cls: 'danger' },
+  'auth.logout':           { label: 'Выход',                  cls: 'info'   },
+  'inbound.create':        { label: 'Создан inbound',         cls: 'accent' },
+  'inbound.update':        { label: 'Изменён inbound',        cls: 'info'   },
+  'inbound.delete':        { label: 'Удалён inbound',         cls: 'danger' },
+  'inbound.toggle':        { label: 'Inbound вкл/выкл',       cls: 'info'   },
+  'client.create':         { label: 'Создан клиент',          cls: 'accent' },
+  'client.update':         { label: 'Изменён клиент',         cls: 'info'   },
+  'client.delete':         { label: 'Удалён клиент',          cls: 'danger' },
+  'client.toggle':         { label: 'Клиент вкл/выкл',        cls: 'info'   },
+  'client.reset_traffic':  { label: 'Сброс трафика',          cls: 'warn'   },
+  'client.rotate_token':   { label: 'Смена sub-токена',       cls: 'warn'   },
+  'rule.create':           { label: 'Создано правило',        cls: 'accent' },
+  'rule.update':           { label: 'Изменено правило',       cls: 'info'   },
+  'rule.delete':           { label: 'Удалено правило',        cls: 'danger' },
+  'outbound.create':       { label: 'Создан outbound',        cls: 'accent' },
+  'outbound.update':       { label: 'Изменён outbound',       cls: 'info'   },
+  'outbound.delete':       { label: 'Удалён outbound',        cls: 'danger' },
+  'split.create':          { label: 'Создан split-список',    cls: 'accent' },
+  'split.update':          { label: 'Изменён split-список',   cls: 'info'   },
+  'split.delete':          { label: 'Удалён split-список',    cls: 'danger' },
+  'split.refresh':         { label: 'Обновлён split-список',  cls: 'info'   },
+  'service.restart':       { label: 'Перезапуск сервиса',     cls: 'warn'   },
+  'xray.update':           { label: 'Обновление Xray',        cls: 'warn'   },
+  'settings.update':       { label: 'Изменены настройки',     cls: 'warn'   },
+  'password.change':       { label: 'Смена пароля',           cls: 'warn'   },
+};
+
+async function loadAudit(reset = false) {
+  if (reset) auditOffset = 0;
+
+  const params = new URLSearchParams({
+    limit:  AUDIT_PAGE_SIZE,
+    offset: auditOffset,
+  });
+  const af = document.getElementById('audit-action-filter').value;
+  const uf = document.getElementById('audit-user-filter').value.trim();
+  if (af) params.set('action', af);
+  if (uf) params.set('user',   uf);
+
+  const tb = document.getElementById('audit-tbody');
+  tb.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--text-dim);padding:30px">Загрузка…</td></tr>';
+
+  try {
+    const r = await api('GET', '/api/system/audit-logs?' + params.toString());
+    auditTotal = r.total;
+    auditCache = r.entries;
+    renderAudit(r.entries);
+    updateAuditPagination();
+  } catch(e) {
+    tb.innerHTML = `<tr><td colspan="5" style="text-align:center;color:var(--danger);padding:20px">Ошибка: ${e.message}</td></tr>`;
+  }
+}
+
+function renderAudit(entries) {
+  const tb = document.getElementById('audit-tbody');
+  if (!entries.length) {
+    tb.innerHTML = `
+      <tr><td colspan="5" style="text-align:center;color:var(--text-dim);padding:40px">
+        <i class="bi bi-shield-check" style="font-size:24px;display:block;margin-bottom:8px;color:var(--text-mute)"></i>
+        Записей не найдено
+      </td></tr>`;
+    return;
+  }
+  tb.innerHTML = entries.map(e => {
+    const info = ACTION_MAP[e.action] || { label: e.action, cls: '' };
+    const time = fmtAuditTime(e.timestamp);
+    const user = e.username
+      ? `<span class="audit-user">${escapeHtml(e.username)}</span>`
+      : '<span class="audit-user system">system</span>';
+    const target = renderTarget(e);
+    const ip = e.ip ? `<span class="audit-ip">${escapeHtml(e.ip)}</span>` : '<span class="text-mute">—</span>';
+    return `
+      <tr>
+        <td><span class="audit-time">${time}</span></td>
+        <td>${user}</td>
+        <td><span class="audit-action ${info.cls}">${info.label}</span></td>
+        <td class="audit-target">${target}</td>
+        <td>${ip}</td>
+      </tr>`;
+  }).join('');
+}
+
+function renderTarget(e) {
+  // Сборка читаемой "цели" из target_name + details
+  const parts = [];
+  if (e.target_name) {
+    parts.push(`<code>${escapeHtml(e.target_name)}</code>`);
+  }
+  if (e.details && typeof e.details === 'object') {
+    const d = e.details;
+    const bits = [];
+    // Несколько частых полей форматируем красиво
+    if (d.protocol)    bits.push(d.protocol);
+    if (d.port)        bits.push(`:${d.port}`);
+    if (d.engine && !d.protocol) bits.push(d.engine);
+    if (d.inbound_tag) bits.push(`в ${d.inbound_tag}`);
+    if (d.fields && Array.isArray(d.fields)) {
+      bits.push(`(${d.fields.slice(0,3).join(', ')}${d.fields.length>3?'…':''})`);
+    }
+    if (typeof d.enabled === 'boolean') bits.push(d.enabled ? 'enabled' : 'disabled');
+    if (d.ok === false) bits.push('<span class="text-danger">ошибка</span>');
+    if (d.reason)  bits.push(`<span class="text-dim">— ${escapeHtml(d.reason)}</span>`);
+    if (bits.length) parts.push(`<span class="text-dim" style="margin-left:8px">${bits.join(' ')}</span>`);
+  }
+  return parts.length ? parts.join('') : '<span class="text-mute">—</span>';
+}
+
+function fmtAuditTime(iso) {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  // YYYY-MM-DD HH:mm:ss в локальной таймзоне
+  const pad = n => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())} ` +
+         `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+}
+
+function escapeHtml(s) {
+  return String(s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+function updateAuditPagination() {
+  const from = auditTotal ? auditOffset + 1 : 0;
+  const to   = Math.min(auditOffset + AUDIT_PAGE_SIZE, auditTotal);
+  document.getElementById('audit-meta').textContent =
+    `всего: ${auditTotal.toLocaleString('ru-RU')}`;
+  document.getElementById('audit-page-info').textContent =
+    auditTotal ? `Показано ${from}–${to}` : 'Нет записей';
+  document.getElementById('audit-prev').disabled = auditOffset === 0;
+  document.getElementById('audit-next').disabled = to >= auditTotal;
+}
+
+function auditPrev() {
+  auditOffset = Math.max(0, auditOffset - AUDIT_PAGE_SIZE);
+  loadAudit(false);
+}
+function auditNext() {
+  if (auditOffset + AUDIT_PAGE_SIZE >= auditTotal) return;
+  auditOffset += AUDIT_PAGE_SIZE;
+  loadAudit(false);
+}
+
+async function downloadAudit() {
+  // Скачиваем не текущую страницу, а ВСЁ под текущими фильтрами.
+  // 500 — потолок endpoint'а; если больше — придётся пагинировать на бэке,
+  // но для типичных кейсов 500 строк хватает.
+  const params = new URLSearchParams({ limit: 500, offset: 0 });
+  const af = document.getElementById('audit-action-filter').value;
+  const uf = document.getElementById('audit-user-filter').value.trim();
+  if (af) params.set('action', af);
+  if (uf) params.set('user',   uf);
+
+  try {
+    const r = await api('GET', '/api/system/audit-logs?' + params.toString());
+    // CSV формат — открывается в Excel/LibreOffice
+    const rows = [['Время', 'Юзер', 'Действие', 'Цель', 'IP', 'Детали']];
+    r.entries.forEach(e => {
+      const detailsStr = e.details ? JSON.stringify(e.details, null, 0) : '';
+      rows.push([
+        e.timestamp || '',
+        e.username  || '',
+        e.action    || '',
+        e.target_name || '',
+        e.ip || '',
+        detailsStr,
+      ]);
+    });
+    const csv = rows.map(r => r.map(c =>
+      `"${String(c).replace(/"/g, '""')}"`
+    ).join(',')).join('\n');
+    const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    const ts = new Date().toISOString().slice(0, 19).replace(/[T:]/g, '-');
+    a.href = url;
+    a.download = `audit-${ts}.csv`;
+    document.body.appendChild(a); a.click(); a.remove();
+    URL.revokeObjectURL(url);
+    toast(`Скачано ${r.entries.length} записей`);
+  } catch(e) { toast(e.message, 'error'); }
+}
+
+// ─────────────────────────────────────────────────
+// Init: открываем таб из URL hash, по умолчанию — status.
+// ─────────────────────────────────────────────────
+const initialTab = TABS.includes(location.hash.slice(1)) ? location.hash.slice(1) : 'status';
+switchTab(initialTab);
+
+// Реакция на hashchange — если пользователь поменял hash вручную или нажал назад.
+window.addEventListener('hashchange', () => {
+  const t = location.hash.slice(1);
+  if (TABS.includes(t)) switchTab(t);
+});
+</script>
+{% endblock %}

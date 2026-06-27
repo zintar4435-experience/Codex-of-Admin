@@ -1,0 +1,966 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}ProxyPanel{% endblock %}</title>
+  <meta name="csrf-token" content="{{ csrf_token() }}">
+  <!-- Анти-FOUC: применяем сохранённую тему ДО загрузки CSS, чтобы при
+       перезагрузке страницы не было вспышки дефолтной палитры. Должен
+       стоять до link rel="stylesheet" — сразу после title. -->
+  <script>
+    (function() {
+      try {
+        var t = localStorage.getItem('panel-theme') || 'glass';
+        if (t && t !== 'slate') {
+          document.documentElement.setAttribute('data-theme', t);
+        }
+      } catch (e) { /* localStorage может быть выключен — терпим */ }
+    })();
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
+  <style>
+    :root {
+      /* ─── Палитра (Tailwind slate + emerald) ──────────────────────
+         Тёплый нейтральный фон, эмеральд как акцент. Менее «неоновая»
+         чем v11, чтобы глаза не уставали за час работы. */
+      --bg:          #0b1014;
+      --surface:     #111720;
+      --surface2:    #161d28;
+      --border:      #1f2937;
+      --border-mute: #1a212c;     /* для table-row dividers */
+
+      --accent:    #10b981;       /* emerald-500 */
+      --accent-hi: #34d399;       /* emerald-400 — для hover */
+      --accent2:   #38bdf8;       /* sky-400 — для второстепенного акцента */
+      --danger:    #ef4444;       /* red-500 */
+      --warn:      #f59e0b;       /* amber-500 */
+      --info:      #818cf8;       /* indigo-400 */
+
+      --text:        #cbd5e1;     /* slate-300 — основной текст */
+      --text-dim:    #64748b;     /* slate-500 — вспомогательный */
+      --text-mute:   #475569;     /* slate-600 — очень слабый */
+      --text-bright: #f1f5f9;     /* slate-100 — заголовки/значения */
+
+      /* ─── Шрифты ──────────────────────────────────────────────
+         Inter — основной UI-шрифт. JetBrains Mono — для технических
+         данных (UUID, ссылки, логи, JSON, порты). */
+      --sans: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+      --mono: 'JetBrains Mono', 'Cascadia Code', Menlo, monospace;
+
+      /* ─── Размеры / радиусы ──────────────────────────────────── */
+      --radius:     8px;
+      --radius-sm:  4px;
+      --sidebar-w:  220px;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--sans);
+      font-size: 13px;
+      font-feature-settings: 'cv11', 'ss01';   /* Inter stylistic alts: чуть строже */
+      min-height: 100vh;
+      display: flex;
+      line-height: 1.5;
+    }
+
+    /* ─── Sidebar ───────────────────────────────────────────────── */
+    .sidebar {
+      width: var(--sidebar-w);
+      background: var(--surface);
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      position: fixed;
+      top: 0; left: 0; bottom: 0;
+      z-index: 100;
+    }
+
+    .sidebar-logo {
+      padding: 22px 20px 18px;
+      border-bottom: 1px solid var(--border);
+    }
+    .sidebar-logo span {
+      font-family: var(--mono);   /* "технический" логотип, не sans */
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--text-bright);
+      letter-spacing: -0.2px;
+    }
+    .sidebar-logo span::before {
+      content: '▸ ';
+      color: var(--accent);
+    }
+    .sidebar-logo small {
+      display: block;
+      color: var(--text-mute);
+      font-size: 10px;
+      margin-top: 4px;
+      font-weight: 400;
+    }
+
+    .sidebar-nav { padding: 12px 0; flex: 1; }
+
+    /* L3: заголовки секций меню */
+    .nav-section {
+      padding: 12px 16px 4px;
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 1.2px;
+      color: var(--text-mute);
+      text-transform: uppercase;
+    }
+    .nav-link {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 20px;
+      color: var(--text-dim);
+      text-decoration: none;
+      font-size: 13px;
+      font-weight: 500;
+      transition: color .12s, background .12s;
+      border-left: 2px solid transparent;
+    }
+    .nav-link:hover { color: var(--text-bright); background: var(--surface2); }
+    .nav-link.active {
+      color: var(--accent);
+      border-left-color: var(--accent);
+      background: rgba(16,185,129,.06);
+    }
+    .nav-link i { font-size: 14px; width: 16px; color: inherit; }
+
+    .sidebar-footer {
+      padding: 16px 20px;
+      border-top: 1px solid var(--border);
+    }
+    .sidebar-footer form button {
+      background: none;
+      border: 1px solid var(--border);
+      color: var(--text-dim);
+      padding: 7px 14px;
+      border-radius: var(--radius);
+      cursor: pointer;
+      font-family: var(--sans);
+      font-size: 12px;
+      font-weight: 500;
+      transition: border-color .12s, color .12s;
+      width: 100%;
+    }
+    .sidebar-footer form button:hover {
+      border-color: var(--danger);
+      color: var(--danger);
+    }
+
+    /* ─── Main ─────────────────────────────────────────────────── */
+    .main {
+      margin-left: var(--sidebar-w);
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      min-height: 100vh;
+      min-width: 0;   /* flex-ребёнок должен сжиматься, иначе широкий контент уезжает за экран */
+    }
+
+    .topbar {
+      padding: 18px 32px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background: var(--surface);
+    }
+    /* L1: page title */
+    .topbar h1 {
+      font-size: 16px;
+      font-weight: 600;
+      color: var(--text-bright);
+      letter-spacing: -0.2px;
+    }
+    .topbar .badge-status {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 11px;
+      color: var(--text-dim);
+    }
+    .dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+    .dot-green { background: var(--accent); box-shadow: 0 0 6px rgba(16,185,129,.5); }
+    .dot-red   { background: var(--danger); }
+    .dot-grey  { background: var(--text-mute); }
+
+    .content { padding: 28px 32px; flex: 1; min-width: 0; }
+
+    /* ─── Cards ─────────────────────────────────────────────────── */
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 20px 24px;
+      margin-bottom: 20px;
+    }
+    .card-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 16px;
+    }
+    /* L1: card title */
+    .card-title {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--text-bright);
+      letter-spacing: -0.1px;
+    }
+
+    /* ─── Stat cards ────────────────────────────────────────────── */
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+    .stat-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 16px 20px;
+    }
+    /* L3: stat label */
+    .stat-label {
+      font-size: 10px;
+      color: var(--text-dim);
+      text-transform: uppercase;
+      letter-spacing: 1.2px;
+      font-weight: 600;
+      margin-bottom: 8px;
+    }
+    /* L1: stat value */
+    .stat-value {
+      font-size: 24px;
+      font-weight: 700;
+      color: var(--text-bright);
+      line-height: 1;
+      letter-spacing: -0.5px;
+      /* числа выглядят чище с табличной табуляцией */
+      font-variant-numeric: tabular-nums;
+    }
+    .stat-value.accent { color: var(--accent); }
+    .stat-sub { font-size: 11px; color: var(--text-dim); margin-top: 6px; }
+
+    /* ─── Table ─────────────────────────────────────────────────── */
+    .table-wrap { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; }
+    /* L3: column headers */
+    th {
+      font-size: 10px;
+      color: var(--text-dim);
+      text-transform: uppercase;
+      letter-spacing: 1.2px;
+      font-weight: 600;
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--border);
+      text-align: left;
+    }
+    /* L2: table cells */
+    td {
+      padding: 12px;
+      border-bottom: 1px solid var(--border-mute);
+      vertical-align: middle;
+      font-size: 13px;
+    }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: var(--surface2); }
+    /* Inline code в ячейках — технические штуки идут моно */
+    td code, th code {
+      font-family: var(--mono);
+      font-size: 12px;
+      color: var(--text);
+      background: rgba(255,255,255,.03);
+      padding: 1px 6px;
+      border-radius: 3px;
+    }
+
+    /* ─── Badges ────────────────────────────────────────────────── */
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 2px 8px;
+      border-radius: var(--radius-sm);
+      font-size: 11px;
+      font-weight: 500;
+      letter-spacing: -0.1px;
+    }
+    .badge-active   { background: rgba(16,185,129,.13); color: var(--accent); }
+    .badge-inactive { background: rgba(100,116,139,.13); color: var(--text-dim); }
+    .badge-danger   { background: rgba(239,68,68,.13);  color: var(--danger); }
+    .badge-warn     { background: rgba(245,158,11,.13); color: var(--warn); }
+    .badge-info     { background: rgba(56,189,248,.13); color: var(--accent2); }
+
+    /* ─── Protocol chips (mono — это технический ярлык) ─────────── */
+    .proto {
+      font-family: var(--mono);
+      font-size: 10px;
+      font-weight: 500;
+      letter-spacing: .3px;
+      padding: 2px 7px;
+      border-radius: var(--radius-sm);
+      border: 1px solid;
+    }
+    .proto-vmess       { color: #a78bfa; border-color: #a78bfa33; }
+    .proto-vless       { color: #60a5fa; border-color: #60a5fa33; }
+    .proto-trojan      { color: #f87171; border-color: #f8717133; }
+    .proto-ss          { color: #fbbf24; border-color: #fbbf2433; }
+    .proto-shadowsocks { color: #fbbf24; border-color: #fbbf2433; }
+    .proto-naive       { color: #34d399; border-color: #34d39933; }
+    .proto-socks       { color: #94a3b8; border-color: #94a3b833; }
+    .proto-http        { color: #94a3b8; border-color: #94a3b833; }
+
+    /* ─── Buttons ───────────────────────────────────────────────── */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 7px 14px;
+      border-radius: var(--radius);
+      border: none;
+      cursor: pointer;
+      font-family: var(--sans);
+      font-size: 13px;
+      font-weight: 500;
+      letter-spacing: -0.1px;
+      transition: background .12s, border-color .12s, color .12s;
+      text-decoration: none;
+      white-space: nowrap;
+    }
+    .btn:disabled { opacity: .45; cursor: not-allowed; }
+    .btn-primary  { background: var(--accent); color: #062a1f; }
+    .btn-primary:hover:not(:disabled) { background: var(--accent-hi); }
+    .btn-outline  { background: transparent; border: 1px solid var(--border); color: var(--text); }
+    .btn-outline:hover:not(:disabled) { border-color: var(--text-dim); color: var(--text-bright); }
+    .btn-danger   { background: rgba(239,68,68,.12); color: var(--danger); border: 1px solid rgba(239,68,68,.3); }
+    .btn-danger:hover:not(:disabled) { background: rgba(239,68,68,.2); }
+    .btn-sm   { padding: 4px 10px; font-size: 12px; }
+    .btn-icon { padding: 5px 8px; gap: 0; }
+    .btn i { font-size: 14px; }
+
+    /* ─── Progress bar ──────────────────────────────────────────── */
+    .progress {
+      height: 4px;
+      background: var(--border);
+      border-radius: 2px;
+      overflow: hidden;
+    }
+    .progress-bar {
+      height: 100%;
+      border-radius: 2px;
+      background: var(--accent);
+      transition: width .3s;
+    }
+    .progress-bar.warn   { background: var(--warn); }
+    .progress-bar.danger { background: var(--danger); }
+
+    /* ─── Forms ─────────────────────────────────────────────────── */
+    .form-group { margin-bottom: 16px; }
+    /* L3: form label */
+    .form-label {
+      display: block;
+      font-size: 10px;
+      color: var(--text-dim);
+      margin-bottom: 6px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      font-weight: 600;
+    }
+    /* L2: input — sans для удобного ввода обычных строк (домены, имена, числа).
+       Если конкретное поле семантически технического характера (UUID, ключ),
+       страница может добавить inline style="font-family:var(--mono)". */
+    .form-control {
+      width: 100%;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      color: var(--text-bright);
+      font-family: var(--sans);
+      font-size: 13px;
+      padding: 8px 12px;
+      outline: none;
+      transition: border-color .12s, background .12s;
+      font-variant-numeric: tabular-nums;
+    }
+    .form-control:focus { border-color: var(--accent); }
+    .form-control:disabled { opacity: .5; cursor: not-allowed; }
+    .form-control option { background: var(--surface); color: var(--text); }
+    .form-text {
+      font-size: 11px;
+      color: var(--text-dim);
+      margin-top: 6px;
+      line-height: 1.5;
+    }
+
+    /* ─── Modal ─────────────────────────────────────────────────── */
+    .modal-backdrop {
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,.65);
+      backdrop-filter: blur(4px);
+      z-index: 200;
+      display: none;
+      align-items: center;
+      justify-content: center;
+    }
+    .modal-backdrop.open { display: flex; }
+    .modal-box {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 28px 32px;
+      width: 480px;
+      max-width: 95vw;
+      max-height: 90vh;
+      overflow-y: auto;
+      box-shadow: 0 24px 60px rgba(0,0,0,.4);
+    }
+    /* L1: modal title */
+    .modal-title {
+      font-size: 16px;
+      font-weight: 600;
+      color: var(--text-bright);
+      margin-bottom: 18px;
+      letter-spacing: -0.2px;
+    }
+    .modal-footer { display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px; }
+
+    /* ─── Toast ─────────────────────────────────────────────────── */
+    #toast-container {
+      position: fixed; bottom: 24px; right: 24px;
+      display: flex; flex-direction: column; gap: 8px;
+      z-index: 9999;
+    }
+    .toast {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 10px 12px 10px 14px;
+      font-size: 12px;
+      color: var(--text-bright);
+      display: flex; align-items: flex-start; gap: 8px;
+      animation: slideIn .2s ease;
+      max-width: 360px;
+      box-shadow: 0 6px 20px rgba(0,0,0,.3);
+    }
+    .toast-body { flex: 1; line-height: 1.5; word-break: break-word; }
+    .toast-icon { flex-shrink: 0; margin-top: 1px; }
+    .toast-actions {
+      display: flex; align-items: center; gap: 4px;
+      flex-shrink: 0; margin-top: 1px;
+    }
+    .toast-btn {
+      background: none; border: none; cursor: pointer;
+      color: var(--text-dim); padding: 2px 4px;
+      border-radius: 4px; font-size: 13px; line-height: 1;
+      transition: color .12s, background .12s;
+    }
+    .toast-btn:hover { color: var(--text-bright); background: rgba(255,255,255,.06); }
+    .toast.success { border-color: rgba(16,185,129,.4); }
+    .toast.error   { border-color: rgba(239,68,68,.4); }
+    .toast.warning { border-color: rgba(245,158,11,.4); }
+    .toast.info    { border-color: rgba(129,140,248,.4); }
+    @keyframes slideIn {
+      from { opacity: 0; transform: translateY(10px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    /* ─── Code block — JSON, ссылки, UUID ───────────────────────── */
+    .code-block {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 12px 16px;
+      font-family: var(--mono);
+      font-size: 11px;
+      color: var(--accent);
+      word-break: break-all;
+      cursor: pointer;
+      transition: border-color .12s;
+      line-height: 1.5;
+    }
+    .code-block:hover { border-color: var(--accent); }
+
+    /* Inline code — для одиночных идентификаторов в прозе */
+    code {
+      font-family: var(--mono);
+      font-size: .92em;
+    }
+
+    /* ─── Empty states ──────────────────────────────────────────── */
+    .empty-state {
+      text-align: center;
+      padding: 56px 32px;
+    }
+    .empty-state .empty-icon {
+      font-size: 48px;
+      color: var(--text-mute);
+      margin-bottom: 16px;
+      line-height: 1;
+    }
+    .empty-state .empty-title {
+      font-size: 15px;
+      font-weight: 600;
+      color: var(--text-bright);
+      margin-bottom: 8px;
+    }
+    .empty-state .empty-desc {
+      font-size: 12px;
+      color: var(--text-dim);
+      max-width: 460px;
+      margin: 0 auto 20px;
+      line-height: 1.6;
+    }
+    .empty-state .empty-actions {
+      display: inline-flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      justify-content: center;
+    }
+
+    /* ─── Utility ───────────────────────────────────────────────── */
+    .flex { display: flex; }
+    .gap-2 { gap: 8px; }
+    .gap-3 { gap: 12px; }
+    .items-center { align-items: center; }
+    .justify-between { justify-content: space-between; }
+    .text-dim    { color: var(--text-dim); }
+    .text-bright { color: var(--text-bright); }
+    .text-accent { color: var(--accent); }
+    .text-danger { color: var(--danger); }
+    .text-warn   { color: var(--warn); }
+    .text-mono   { font-family: var(--mono); }
+    .mt-1 { margin-top: 4px; }
+    .mt-2 { margin-top: 8px; }
+    .mb-2 { margin-bottom: 8px; }
+    .hidden { display: none !important; }
+
+    /* ─── Scrollbar ─────────────────────────────────────────────── */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: var(--text-mute); }
+
+    /* ═══════════════════════════════════════════════════════════════
+       ПЕРЕКЛЮЧАЕМЫЕ ТЕМЫ (data-theme на <html>)
+
+       slate  — базовая (этот :root выше, без data-theme).
+       codex  — «красивая» тёмно-изумрудная тема из дизайна Codex of Admin.
+       glass  — Liquid Glass: цветной анимированный фон + матовые панели.
+
+       Большинство правил — переопределение CSS-переменных (их подхватывают
+       все компоненты). Где переменных мало — точечные правила по селекторам.
+       ═══════════════════════════════════════════════════════════════ */
+
+    /* ── Тема CODEX (data-theme="codex") — «красивая» тёмная тема из дизайна
+       Codex of Admin. Заменяет прежнюю Frosted. Сплошные тёмно-изумрудные
+       поверхности + мягкий радиальный градиент фона. ── */
+    [data-theme="codex"] {
+      --bg: #0a100d;
+      --surface: #131a17;
+      --surface2: #1a221e;
+      --border: rgba(255,255,255,0.08);
+      --border-mute: rgba(255,255,255,0.05);
+      --accent: #5fe3b8;
+      --accent-hi: #7eebc5;
+      --accent2: #7c9cff;
+      --danger: #f06d6d;
+      --warn: #f5b35c;
+      --info: #b289ff;
+      --text: #e8efe9;
+      --text-dim: #a8b3ae;
+      --text-mute: #6b756f;
+      --text-bright: #ffffff;
+      --sans: 'Inter Tight', 'Inter', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+    }
+    [data-theme="codex"] body {
+      background: radial-gradient(120% 80% at 80% 0%, #11241d 0%, #0a100d 55%);
+      background-attachment: fixed;
+    }
+    [data-theme="codex"] .card { box-shadow: 0 8px 24px rgba(0,0,0,0.35); }
+    [data-theme="codex"] .nav-link.active { border-left-color: var(--accent); }
+    [data-theme="codex"] .btn-primary { color: #062019; }
+
+    /* ─── Hamburger button (виден только на мобильных) ──────────── */
+    .sidebar-toggle {
+      display: none;
+      background: none;
+      border: 1px solid var(--border);
+      color: var(--text);
+      width: 36px; height: 36px;
+      border-radius: var(--radius);
+      cursor: pointer;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      transition: border-color .12s, color .12s;
+    }
+    .sidebar-toggle:hover { border-color: var(--text-dim); color: var(--text-bright); }
+    .sidebar-toggle i { font-size: 18px; }
+
+    /* ─── Backdrop под раскрытым мобильным sidebar ──────────────── */
+    .sidebar-backdrop {
+      display: none;
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,.55);
+      backdrop-filter: blur(2px);
+      z-index: 99;        /* ниже sidebar (100), выше остального */
+      animation: fadeIn .15s ease;
+    }
+    .sidebar-backdrop.open { display: block; }
+    @keyframes fadeIn {
+      from { opacity: 0; } to { opacity: 1; }
+    }
+
+    /* ─── Mobile breakpoint ─────────────────────────────────────── */
+    /* Граница 900px: ниже — overlay sidebar, hamburger в topbar. */
+    @media (max-width: 900px) {
+      .sidebar {
+        transform: translateX(-100%);
+        transition: transform .2s ease;
+        box-shadow: 6px 0 20px rgba(0,0,0,.3);
+      }
+      .sidebar.open { transform: translateX(0); }
+      .main {
+        margin-left: 0;
+      }
+      .sidebar-toggle { display: inline-flex; }
+      .topbar {
+        padding: 14px 16px;
+        gap: 12px;
+      }
+      .topbar h1 { font-size: 15px; }
+      .content { padding: 18px 16px; }
+      /* На узких экранах stats-grid должен ужиматься до 2 колонок */
+      .stats-grid { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); }
+      /* badge-status в topbar занимает много места — на мобиле прячем */
+      .badge-status { display: none; }
+    }
+
+    @media (max-width: 480px) {
+      .modal-box { padding: 22px 20px; }
+      .card { padding: 16px 18px; }
+    }
+    /* ── Тема GLASS (data-theme="glass") — точный перенос «Liquid Glass» из
+       дизайна. Глубокий фон + анимированные цветные пятна, матовые панели.
+       Блюр (backdrop-filter) на верхнеуровневых панелях И на карточках; у
+       ВЛОЖЕННЫХ карточек блюр снимается (.card .card) — иначе Chrome рисует
+       чёрный фон при двойном backdrop-filter. ── */
+    [data-theme="glass"] {
+      --bg: #080d11;
+      --surface: rgba(255,255,255,0.07);
+      --surface2: rgba(255,255,255,0.10);
+      --border: rgba(255,255,255,0.12);
+      --border-mute: rgba(255,255,255,0.08);
+      --accent: #5fe3b8;
+      --accent-hi: #7eebc5;
+      --accent2: #8aa6ff;
+      --danger: #ff7d7d;
+      --warn: #f5b35c;
+      --info: #b99cff;
+      --text: #e9eff1;
+      --text-dim: #a7b4b7;
+      --text-mute: #6d7a7e;
+      --text-bright: #ffffff;
+      --sans: 'Inter Tight', 'Inter', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+    }
+    [data-theme="glass"] body {
+      background:
+        radial-gradient(50% 44% at 14% 6%,  rgba(34,108,138,0.62) 0%, transparent 60%),
+        radial-gradient(48% 42% at 88% 2%,  rgba(96,70,168,0.58) 0%, transparent 58%),
+        radial-gradient(54% 52% at 84% 94%, rgba(22,120,98,0.55) 0%, transparent 58%),
+        radial-gradient(48% 48% at 10% 98%, rgba(150,52,108,0.50) 0%, transparent 58%),
+        linear-gradient(150deg, #0a1216 0%, #0b0f18 100%);
+      background-attachment: fixed;
+    }
+    /* анимированные дрейфующие пятна позади всего (z-index:-1), панели их размывают */
+    [data-theme="glass"] body::before {
+      content:""; position:fixed; inset:-25%; z-index:-1; pointer-events:none;
+      background:
+        radial-gradient(closest-side, rgba(46,134,168,0.55), transparent),
+        radial-gradient(closest-side, rgba(120,86,200,0.50), transparent),
+        radial-gradient(closest-side, rgba(28,150,120,0.48), transparent),
+        radial-gradient(closest-side, rgba(178,64,128,0.42), transparent);
+      background-size: 55% 55%, 50% 50%, 60% 60%, 48% 48%;
+      background-position: 8% 12%, 86% 6%, 78% 90%, 18% 88%;
+      background-repeat:no-repeat;
+      filter: blur(36px);
+      animation: glassDrift 26s ease-in-out infinite alternate;
+    }
+    @keyframes glassDrift {
+      0%   { background-position: 8% 12%, 86% 6%,  78% 90%, 18% 88%; }
+      50%  { background-position: 20% 2%, 72% 20%, 90% 76%, 4% 98%; }
+      100% { background-position: 2% 22%, 94% 0%,  68% 98%, 26% 78%; }
+    }
+    /* матовые верхнеуровневые панели */
+    [data-theme="glass"] .sidebar {
+      background: linear-gradient(180deg, rgba(255,255,255,0.06), rgba(255,255,255,0.02));
+      backdrop-filter: blur(26px) saturate(150%); -webkit-backdrop-filter: blur(26px) saturate(150%);
+      border-right: 1px solid rgba(255,255,255,0.10);
+    }
+    [data-theme="glass"] .topbar {
+      background: rgba(255,255,255,0.04);
+      backdrop-filter: blur(20px) saturate(140%); -webkit-backdrop-filter: blur(20px) saturate(140%);
+      border-bottom: 1px solid var(--border);
+    }
+    [data-theme="glass"] .card {
+      background: rgba(255,255,255,0.07);
+      border: 1px solid rgba(255,255,255,0.13);
+      backdrop-filter: blur(26px) saturate(140%); -webkit-backdrop-filter: blur(26px) saturate(140%);
+      box-shadow: 0 1px 0 rgba(255,255,255,0.10) inset, 0 8px 30px rgba(0,0,0,0.40);
+    }
+    /* вложенные карточки — без второго blur (баг чёрного фона в Chrome) */
+    [data-theme="glass"] .card .card,
+    [data-theme="glass"] .modal-box .card {
+      background: rgba(255,255,255,0.05);
+      backdrop-filter: none; -webkit-backdrop-filter: none; box-shadow: none;
+    }
+    [data-theme="glass"] .modal-box {
+      background: rgba(22,28,32,0.72);
+      border: 1px solid rgba(255,255,255,0.13);
+      backdrop-filter: blur(26px) saturate(140%); -webkit-backdrop-filter: blur(26px) saturate(140%);
+    }
+    [data-theme="glass"] .modal-backdrop { background: rgba(4,8,11,0.55); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); }
+    /* навигация */
+    [data-theme="glass"] .nav-link { color: var(--text-dim); border-left-color: transparent; }
+    [data-theme="glass"] .nav-link:hover:not(.active) { background: rgba(255,255,255,0.06); color: var(--text-bright); }
+    [data-theme="glass"] .nav-link.active { background: rgba(255,255,255,0.10); color: var(--text-bright); border-left-color: var(--accent); }
+    /* контролы — без собственного backdrop-filter */
+    [data-theme="glass"] .btn:not(.btn-primary):not(.btn-danger) { background: rgba(255,255,255,0.09); border: 1px solid rgba(255,255,255,0.16); color: var(--text); }
+    [data-theme="glass"] .btn:not(.btn-primary):not(.btn-danger):hover:not(:disabled) { background: rgba(255,255,255,0.16); border-color: rgba(255,255,255,0.26); }
+    [data-theme="glass"] .btn-primary { background: var(--accent); color: #062019; border-color: transparent; box-shadow: 0 1px 0 rgba(255,255,255,0.2) inset, 0 8px 22px rgba(95,227,184,0.28); }
+    [data-theme="glass"] .btn-primary:hover:not(:disabled) { background: var(--accent-hi); }
+    [data-theme="glass"] .btn-danger { background: rgba(255,125,125,0.16); color: var(--danger); border: 1px solid rgba(255,125,125,0.30); }
+    [data-theme="glass"] .btn-danger:hover:not(:disabled) { background: rgba(255,125,125,0.26); }
+    [data-theme="glass"] .form-control { background: rgba(255,255,255,0.06); border-color: rgba(255,255,255,0.14); color: var(--text); }
+    [data-theme="glass"] .form-control:focus { background: rgba(255,255,255,0.10); border-color: var(--accent); }
+    /* мелочи */
+    [data-theme="glass"] .badge { background: rgba(255,255,255,0.08); }
+    [data-theme="glass"] .badge-active { background: rgba(95,227,184,0.16); color: var(--accent); }
+    [data-theme="glass"] .code-block,
+    [data-theme="glass"] code, [data-theme="glass"] td code { background: rgba(255,255,255,0.06); border-color: var(--border); }
+    [data-theme="glass"] tr:hover td { background: rgba(255,255,255,0.04); }
+    [data-theme="glass"] th { border-bottom-color: var(--border); }
+    [data-theme="glass"] .sidebar-logo span::before { content: none; }
+    [data-theme="glass"] .sidebar-logo span { color: var(--accent); }
+    [data-theme="glass"] .sidebar-logo { border-bottom-color: var(--border); }
+    [data-theme="glass"] .sidebar-footer { border-top-color: var(--border); }
+
+  </style>
+</head>
+<body>
+  <aside class="sidebar">
+    <div class="sidebar-logo">
+      <span>ProxyPanel</span>
+      <small>v1.0 // управление прокси</small>
+    </div>
+    <nav class="sidebar-nav">
+      <div class="nav-section">Основное</div>
+      <a href="/dashboard" class="nav-link {% if request.path == '/dashboard' %}active{% endif %}">
+        <i class="bi bi-speedometer2"></i> Дашборд
+      </a>
+      <a href="/inbounds" class="nav-link {% if request.path.startswith('/inbounds') or request.path.startswith('/clients') %}active{% endif %}">
+        <i class="bi bi-arrow-down-circle"></i> Inbounds
+      </a>
+      <div class="nav-section">Маршрутизация</div>
+      <a href="/routing" class="nav-link {% if request.path == '/routing' %}active{% endif %}">
+        <i class="bi bi-diagram-3"></i> Маршрутизация
+      </a>
+      <a href="/security" class="nav-link {% if request.path == '/security' %}active{% endif %}">
+        <i class="bi bi-shield-check"></i> Безопасность
+      </a>
+      <a href="/split-tunnel" class="nav-link {% if request.path == '/split-tunnel' %}active{% endif %}">
+        <i class="bi bi-scissors"></i> Сплит-туннель
+      </a>
+      <div class="nav-section">Сервер</div>
+      <a href="/server" class="nav-link {% if request.path == '/server' or request.path == '/system' or request.path == '/settings' %}active{% endif %}">
+        <i class="bi bi-hdd-rack"></i> Сервер
+      </a>
+    </nav>
+    <div class="sidebar-footer">
+      <form method="post" action="/auth/logout">
+        <button type="submit"><i class="bi bi-box-arrow-left"></i> Выйти</button>
+      </form>
+    </div>
+  </aside>
+
+  <main class="main">
+    <div class="topbar">
+      <button class="sidebar-toggle" onclick="toggleSidebar()" aria-label="Открыть меню">
+        <i class="bi bi-list"></i>
+      </button>
+      <h1 style="flex:1">{% block page_title %}{% endblock %}</h1>
+      <div class="badge-status" id="status-bar">
+        <span class="dot dot-grey" id="dot-xray"></span><span id="lbl-xray">Xray</span>
+        &nbsp;
+        <span class="dot dot-grey" id="dot-caddy"></span><span id="lbl-caddy">Caddy</span>
+      </div>
+    </div>
+    <div class="content">
+      {% block content %}{% endblock %}
+    </div>
+  </main>
+
+  <div class="sidebar-backdrop" id="sidebar-backdrop" onclick="closeSidebar()"></div>
+
+  <div id="toast-container"></div>
+
+  <script>
+    // ── Sidebar (mobile) ──
+    function toggleSidebar() {
+      const sb = document.querySelector('.sidebar');
+      const bd = document.getElementById('sidebar-backdrop');
+      const isOpen = sb.classList.toggle('open');
+      bd.classList.toggle('open', isOpen);
+    }
+    function closeSidebar() {
+      document.querySelector('.sidebar').classList.remove('open');
+      document.getElementById('sidebar-backdrop').classList.remove('open');
+    }
+    // ESC закрывает sidebar; клик по nav-link на мобиле тоже закрывает
+    // (пользователь чаще всего хочет тут же перейти и видеть страницу).
+    document.addEventListener('keydown', e => {
+      if (e.key === 'Escape') closeSidebar();
+    });
+    document.querySelectorAll('.sidebar .nav-link').forEach(el => {
+      el.addEventListener('click', () => {
+        // На широких экранах sidebar и так всегда открыт — лишний раз не дергаемся.
+        if (window.innerWidth <= 900) closeSidebar();
+      });
+    });
+
+    // ── Toast ──
+    function toast(msg, type='success') {
+      const c = document.getElementById('toast-container');
+      const el = document.createElement('div');
+      el.className = `toast ${type}`;
+
+      const iconMap = {
+        success: 'bi-check-circle text-accent',
+        error:   'bi-x-circle text-danger',
+        warning: 'bi-exclamation-triangle text-warn',
+        info:    'bi-info-circle',
+      };
+      const icon = iconMap[type] || iconMap.info;
+
+      // Экранируем HTML в тексте сообщения
+      const safeMsg = msg.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+
+      el.innerHTML = `
+        <i class="bi ${icon} toast-icon"></i>
+        <span class="toast-body">${safeMsg}</span>
+        <span class="toast-actions">
+          <button class="toast-btn" title="Скопировать" onclick="navigator.clipboard.writeText(${JSON.stringify(msg)})">
+            <i class="bi bi-clipboard"></i>
+          </button>
+          <button class="toast-btn" title="Закрыть" onclick="this.closest('.toast').remove()">
+            <i class="bi bi-x"></i>
+          </button>
+        </span>`;
+      c.appendChild(el);
+
+      // success/info — 4 сек; error/warning — 10 сек
+      const ttl = (type === 'error' || type === 'warning') ? 10000 : 4000;
+      setTimeout(() => el.remove(), ttl);
+    }
+
+    // ── API helper ──
+    function csrfToken() {
+      const m = document.querySelector('meta[name="csrf-token"]');
+      return m ? m.getAttribute('content') : '';
+    }
+    async function api(method, url, body) {
+      const headers = {'Content-Type':'application/json'};
+      if (!['GET','HEAD','OPTIONS'].includes(method.toUpperCase())) {
+        headers['X-CSRF-Token'] = csrfToken();
+      }
+      const opts = {
+        method,
+        headers,
+        cache: 'no-store',
+      };
+      if (body) opts.body = JSON.stringify(body);
+      const r = await fetch(url, opts);
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
+      return data;
+    }
+    window.csrfToken = csrfToken;
+
+    // ── Apply-status polling ──
+    // После save/delete backend возвращает apply_id.
+    // UI поллит /api/system/apply-status/<id> чтобы показать результат apply.
+    // Если apply упал с ошибкой — toast с текстом (красный).
+    // Если ok или unknown (TTL истёк) — молча завершаем.
+    async function pollApplyStatus(applyId, attempts = 5, intervalMs = 1200) {
+      if (!applyId) return;
+      for (let i = 0; i < attempts; i++) {
+        await new Promise(r => setTimeout(r, intervalMs));
+        try {
+          const s = await api('GET', `/api/system/apply-status/${applyId}`);
+          if (s.status === 'ok') return;
+          if (s.status === 'error') { toast('Ошибка apply: ' + (s.msg || '?'), 'error'); return; }
+          if (s.status === 'unknown') return; // TTL истёк — считаем ok
+          // 'pending' — продолжаем polling
+        } catch { return; }
+      }
+    }
+
+    // ── Copy to clipboard ──
+    function copyText(text) {
+      navigator.clipboard.writeText(text).then(() => toast('Скопировано'));
+    }
+
+    // ── Format bytes ──
+    function fmtBytes(n) {
+      if (!n) return '—';
+      if (n < 1024) return n + ' B';
+      if (n < 1048576) return (n/1024).toFixed(1) + ' KB';
+      if (n < 1073741824) return (n/1048576).toFixed(1) + ' MB';
+      return (n/1073741824).toFixed(2) + ' GB';
+    }
+
+    function fmtDate(s) {
+      if (!s) return '—';
+      return new Date(s).toLocaleDateString('ru-RU');
+    }
+
+    // ── Status bar ──
+    async function updateStatusBar() {
+      try {
+        const s = await api('GET', '/api/system/status');
+        const dx = document.getElementById('dot-xray');
+        const dc = document.getElementById('dot-caddy');
+        dx.className = 'dot ' + (s.xray.active ? 'dot-green' : 'dot-red');
+        dc.className = 'dot ' + (s.caddy.active ? 'dot-green' : 'dot-red');
+      } catch {}
+    }
+    updateStatusBar();
+    setInterval(updateStatusBar, 5000);
+
+    // ── Modal helpers ──
+    function openModal(id) { document.getElementById(id).classList.add('open'); }
+    function closeModal(id) { document.getElementById(id).classList.remove('open'); }
+    document.addEventListener('keydown', e => {
+      if (e.key === 'Escape') {
+        document.querySelectorAll('.modal-backdrop.open').forEach(m => m.classList.remove('open'));
+      }
+    });
+  </script>
+  {% block scripts %}{% endblock %}
+</body>
+</html>

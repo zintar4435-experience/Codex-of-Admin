@@ -1,0 +1,251 @@
+{% extends "base.html" %}
+{% block title %}Сплит-туннель — ProxyPanel{% endblock %}
+{% block page_title %}Сплит-туннель{% endblock %}
+{% block content %}
+
+<div class="flex justify-between items-center" style="margin-bottom:16px">
+  <div class="text-dim" style="font-size:12px">
+    Списки IP/доменов с действием: <span class="badge badge-active">direct</span> — напрямую,
+    <span class="badge badge-danger">block</span> — блокировать,
+    <span class="badge badge-info">proxy</span> — через прокси
+  </div>
+  <button class="btn btn-primary" onclick="openModal('modal-list')">
+    <i class="bi bi-plus-lg"></i> Новый список
+  </button>
+</div>
+
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:20px" id="lists-grid"></div>
+
+<!-- Modal -->
+<div class="modal-backdrop" id="modal-list">
+  <div class="modal-box" style="width:600px">
+    <div class="modal-title" id="list-modal-title">Новый список</div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px">
+      <div class="form-group">
+        <label class="form-label">Название</label>
+        <input type="text" class="form-control" id="l-name" placeholder="RU bypass">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Тип</label>
+        <select class="form-control" id="l-type">
+          <option value="domain">Домены</option>
+          <option value="ip">IP / CIDR</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Действие</label>
+        <select class="form-control" id="l-action">
+          <option value="direct">direct</option>
+          <option value="block">block</option>
+          <option value="proxy">proxy</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="form-group">
+      <label class="form-label">URL для авто-обновления</label>
+      <input type="text" class="form-control" id="l-url"
+        placeholder="https://raw.githubusercontent.com/.../list.txt">
+      <div class="form-text">Оставьте пустым для ручного ввода. Обновляется каждые 6 часов.</div>
+    </div>
+
+    <div class="form-group">
+      <label class="form-label">Список (по одному на строку)</label>
+      <textarea class="form-control" id="l-content" rows="8"
+        placeholder="domain:example.com&#10;geosite:ru&#10;1.2.3.0/24"></textarea>
+    </div>
+
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal('modal-list');resetForm()">Отмена</button>
+      <button class="btn btn-primary" onclick="saveList()">Сохранить</button>
+    </div>
+  </div>
+</div>
+
+<!-- Presets -->
+<div class="card" style="margin-top:20px">
+  <div class="card-header">
+    <span class="card-title">Быстрые пресеты</span>
+  </div>
+  <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px">
+    <button class="btn btn-outline" onclick="addPreset('ru-geoip')">
+      <i class="bi bi-geo-alt"></i> RU GeoIP (direct)
+    </button>
+    <button class="btn btn-outline" onclick="addPreset('ru-geosite')">
+      <i class="bi bi-globe-europe-africa"></i> RU GeoSite (direct)
+    </button>
+    <button class="btn btn-outline" onclick="addPreset('private')">
+      <i class="bi bi-house-lock"></i> Приватные IP (direct)
+    </button>
+    <button class="btn btn-outline" onclick="addPreset('ads')">
+      <i class="bi bi-ban"></i> Реклама (block)
+    </button>
+  </div>
+</div>
+
+{% endblock %}
+{% block scripts %}
+<script>
+let lists = [];
+let editId = null;
+
+const PRESETS = {
+  'ru-geoip': {
+    name: 'RU GeoIP', list_type: 'ip', action: 'direct',
+    content: 'geoip:ru',
+  },
+  'ru-geosite': {
+    name: 'RU GeoSite', list_type: 'domain', action: 'direct',
+    content: 'geosite:ru\ngeosite:yandex',
+  },
+  'private': {
+    name: 'Приватные IP', list_type: 'ip', action: 'direct',
+    content: 'geoip:private\n10.0.0.0/8\n172.16.0.0/12\n192.168.0.0/16\n127.0.0.0/8',
+  },
+  'ads': {
+    name: 'Блокировка рекламы', list_type: 'domain', action: 'block',
+    content: 'geosite:category-ads-all',
+  },
+};
+
+async function load() {
+  lists = await api('GET', '/api/split-tunnel/');
+  render();
+}
+
+function render() {
+  const grid = document.getElementById('lists-grid');
+  if (!lists.length) {
+    grid.innerHTML = `
+      <div class="card empty-state" style="grid-column:1/-1">
+        <div class="empty-icon"><i class="bi bi-scissors"></i></div>
+        <div class="empty-title">Списки пока не настроены</div>
+        <div class="empty-desc">
+          Сплит-туннель разделяет трафик по доменам или IP-диапазонам:
+          одни идут напрямую, другие — через прокси, третьи блокируются.
+          Списки можно автоматически обновлять с GitHub раз в 6 часов.
+        </div>
+        <div class="empty-actions">
+          <button class="btn btn-primary" onclick="openModal('modal-list')">
+            <i class="bi bi-plus-lg"></i> Создать первый список
+          </button>
+        </div>
+      </div>`;
+    return;
+  }
+  grid.innerHTML = lists.map(lst => {
+    const actionBadge = {direct:'badge-active', block:'badge-danger', proxy:'badge-info'}[lst.action] || 'badge-inactive';
+    const updated = lst.last_updated ? fmtDate(lst.last_updated) : 'никогда';
+    return `<div class="card" style="margin-bottom:0">
+      <div class="card-header">
+        <div class="flex items-center gap-2">
+          <span class="card-title">${lst.name}</span>
+          <span class="badge ${actionBadge}">${lst.action}</span>
+          <span class="badge badge-inactive">${lst.list_type}</span>
+          <span class="badge ${lst.enabled?'badge-active':'badge-inactive'}">${lst.enabled?'вкл':'выкл'}</span>
+        </div>
+        <div class="flex gap-2">
+          <button class="btn btn-outline btn-sm btn-icon" onclick="editList(${lst.id})" title="Редактировать">
+            <i class="bi bi-pencil"></i>
+          </button>
+          ${lst.source_url ? `<button class="btn btn-outline btn-sm btn-icon" onclick="refreshList(${lst.id})" title="Обновить из URL">
+            <i class="bi bi-arrow-repeat"></i>
+          </button>` : ''}
+          <button class="btn btn-danger btn-sm btn-icon" onclick="deleteList(${lst.id})">
+            <i class="bi bi-trash"></i>
+          </button>
+        </div>
+      </div>
+      <div style="font-size:11px;color:var(--text-dim)">
+        <div>${lst.entry_count} записей${lst.source_url ? ` · обновлён ${updated}` : ' · ручной ввод'}</div>
+        ${lst.source_url ? `<div class="mt-1" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
+          <i class="bi bi-link"></i> <code style="font-size:10px">${lst.source_url}</code>
+        </div>` : ''}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function resetForm() {
+  editId = null;
+  document.getElementById('list-modal-title').textContent = 'Новый список';
+  ['l-name','l-url','l-content'].forEach(id=>document.getElementById(id).value='');
+  document.getElementById('l-type').value = 'domain';
+  document.getElementById('l-action').value = 'direct';
+}
+
+function editList(id) {
+  const lst = lists.find(x=>x.id===id);
+  if (!lst) return;
+  editId = id;
+  document.getElementById('list-modal-title').textContent = 'Редактировать: '+lst.name;
+  document.getElementById('l-name').value = lst.name;
+  document.getElementById('l-type').value = lst.list_type;
+  document.getElementById('l-action').value = lst.action;
+  document.getElementById('l-url').value = lst.source_url||'';
+  // Load full content
+  fetch(`/api/split-tunnel/${id}`).then(r=>r.json()).then(d=>{
+    document.getElementById('l-content').value = d.content||'';
+  });
+  openModal('modal-list');
+}
+
+async function saveList() {
+  const body = {
+    name: document.getElementById('l-name').value.trim(),
+    list_type: document.getElementById('l-type').value,
+    action: document.getElementById('l-action').value,
+    source_url: document.getElementById('l-url').value.trim()||null,
+    content: document.getElementById('l-content').value,
+  };
+  try {
+    if (editId) { await api('PUT',`/api/split-tunnel/${editId}`,body); toast('Обновлено'); }
+    else { await api('POST','/api/split-tunnel/',body); toast('Список создан'); }
+    closeModal('modal-list'); resetForm(); load();
+  } catch(e) { toast(e.message,'error'); }
+}
+
+async function deleteList(id) {
+  if (!confirm('Удалить список?')) return;
+  try { await api('DELETE',`/api/split-tunnel/${id}`); toast('Удалено'); load(); }
+  catch(e) { toast(e.message,'error'); }
+}
+
+async function refreshList(id) {
+  try {
+    await api('POST',`/api/split-tunnel/${id}/refresh`);
+    toast('Список обновлён');
+    load();
+  } catch(e) { toast(e.message,'error'); }
+}
+
+async function addPreset(key) {
+  const p = PRESETS[key];
+  if (!p) return;
+  try {
+    await api('POST','/api/split-tunnel/',p);
+    toast(`Пресет "${p.name}" добавлен`);
+    load();
+  } catch(e) { toast(e.message,'error'); }
+}
+
+// Expose content field in GET
+const origGet = api;
+window.api = async (method, url, body) => {
+  const headers = {'Content-Type':'application/json'};
+  if (!['GET','HEAD','OPTIONS'].includes(method.toUpperCase())) {
+    headers['X-CSRF-Token'] = window.csrfToken ? window.csrfToken() : '';
+  }
+  const r = await fetch(url, {
+    method, headers,
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  const data = await r.json().catch(()=>({}));
+  if (!r.ok) throw new Error(data.error||`HTTP ${r.status}`);
+  return data;
+};
+
+load();
+</script>
+{% endblock %}

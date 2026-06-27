@@ -1,0 +1,297 @@
+{% extends "base.html" %}
+{% block title %}Безопасность — ProxyPanel{% endblock %}
+{% block page_title %}Безопасность{% endblock %}
+{% block content %}
+
+<style>
+  /* Стилизованный CSS-toggle — обычный checkbox под капотом */
+  .sec-toggle {
+    position: relative;
+    display: inline-block;
+    width: 44px;
+    height: 24px;
+    flex-shrink: 0;
+  }
+  .sec-toggle input {
+    opacity: 0;
+    width: 0;
+    height: 0;
+  }
+  .sec-toggle .slider {
+    position: absolute;
+    inset: 0;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 24px;
+    transition: background .2s, border-color .2s;
+    cursor: pointer;
+  }
+  .sec-toggle .slider::before {
+    content: "";
+    position: absolute;
+    width: 18px; height: 18px;
+    left: 2px; top: 2px;
+    background: var(--text-dim);
+    border-radius: 50%;
+    transition: transform .2s, background .2s;
+  }
+  .sec-toggle input:checked + .slider {
+    background: rgba(74, 222, 128, 0.15);
+    border-color: var(--accent);
+  }
+  .sec-toggle input:checked + .slider::before {
+    transform: translateX(20px);
+    background: var(--accent);
+  }
+  .sec-toggle.busy .slider {
+    opacity: 0.5;
+    cursor: wait;
+  }
+
+  /* Карточка пресета */
+  .preset-row {
+    display: grid;
+    grid-template-columns: 56px 1fr;
+    gap: 12px;
+    padding: 16px;
+    border-bottom: 1px solid var(--border);
+  }
+  .preset-row:last-child { border-bottom: none; }
+  .preset-title {
+    font-weight: 600;
+    color: var(--text-bright);
+    margin-bottom: 4px;
+  }
+  .preset-desc {
+    font-size: 13px;
+    color: var(--text-dim);
+    line-height: 1.5;
+    margin-bottom: 8px;
+  }
+  .preset-caveat {
+    font-size: 11px;
+    color: var(--text-dim);
+    background: var(--surface2);
+    padding: 6px 10px;
+    border-radius: 6px;
+    border-left: 2px solid var(--warning, #f59e0b);
+    margin-top: 8px;
+  }
+  .preset-rules {
+    font-size: 11px;
+    color: var(--text-dim);
+    margin-top: 8px;
+    font-family: 'Courier New', monospace;
+  }
+  .preset-rules code {
+    background: var(--surface2);
+    padding: 1px 5px;
+    border-radius: 3px;
+    color: var(--accent);
+  }
+
+  .sec-help {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 14px 18px;
+    margin-bottom: 16px;
+    font-size: 13px;
+    color: var(--text-dim);
+    line-height: 1.6;
+  }
+  .sec-help b { color: var(--text); }
+
+  .sec-loading {
+    padding: 40px;
+    text-align: center;
+    color: var(--text-dim);
+  }
+
+  /* Баннер «у вас сейчас нет Xray-инбаундов» */
+  .naive-banner {
+    display: flex;
+    gap: 14px;
+    align-items: flex-start;
+    background: rgba(245, 158, 11, 0.08);
+    border: 1px solid rgba(245, 158, 11, 0.3);
+    border-radius: var(--radius);
+    padding: 14px 18px;
+    margin-bottom: 16px;
+    font-size: 13px;
+    color: var(--text);
+    line-height: 1.5;
+  }
+  .naive-banner-icon {
+    font-size: 24px;
+    line-height: 1;
+    color: #fbbf24;
+    flex-shrink: 0;
+  }
+</style>
+
+<div class="sec-help">
+  Быстрые правила безопасности. Каждый тумблер создаёт обычное правило
+  маршрутизации с префиксом <b><code>[security]</code></b> — его видно и
+  можно отредактировать на странице <a href="/routing">Маршрутизация</a>.
+  Выключение тумблера удаляет соответствующие правила (даже если вы их
+  редактировали).
+</div>
+
+<div id="naive-only-banner" class="naive-banner" style="display:none">
+  <div class="naive-banner-icon">⚠</div>
+  <div>
+    <div style="font-weight:600;margin-bottom:4px;color:#fbbf24">
+      У вас сейчас нет Xray-инбаундов
+    </div>
+    Эти пресеты применяются к Xray-инбаундам (VLESS / VMess / Trojan /
+    Shadowsocks). NaiveProxy через Caddy — прозрачный CONNECT-прокси и
+    routing-правила к нему не относятся. Включение тумблеров создаст
+    правила в БД, но они <b>ничего не заблокируют</b>, пока не появится
+    хотя бы один Xray-инбаунд.
+    <div style="margin-top:8px;font-size:12px;color:var(--text-dim)">
+      Для NaiveProxy блокировка делается server-side:
+      DNS-фильтрация (NextDNS / AdGuard Family DNS),
+      лимиты трафика per-client,
+      Terms of Service для пользователей.
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-header">
+    <span class="card-title">Пресеты</span>
+  </div>
+  <div id="presets-container">
+    <div class="sec-loading">Загрузка...</div>
+  </div>
+</div>
+
+<script>
+"use strict";
+
+// ─────────────────────────────────────────────────────────────────────
+// Уровень 2: вкладка Безопасность.
+// Источник данных — /api/security/presets. Источник истины — БД (через
+// RoutingRule). UI просто отображает текущее состояние и шлёт enable/
+// disable. При ошибке откатывает свой checkbox в исходное состояние.
+// ─────────────────────────────────────────────────────────────────────
+
+const container = document.getElementById('presets-container');
+
+function escapeHtml(s) {
+  if (s == null) return '';
+  return String(s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+function renderRuleSummary(rule) {
+  // Короткий "что под капотом" — что-то вроде:
+  //   action=block, protocol=bittorrent
+  //   action=block, domains=geosite:category-ads-all
+  const parts = [`action=${escapeHtml(rule.action)}`];
+  if (rule.match_protocols && rule.match_protocols.length) {
+    parts.push(`protocol=${rule.match_protocols.map(escapeHtml).join(',')}`);
+  }
+  if (rule.match_domains && rule.match_domains.length) {
+    parts.push(`domains=${rule.match_domains.map(escapeHtml).join(', ')}`);
+  }
+  return parts.join(', ');
+}
+
+function renderPreset(p) {
+  const caveatHtml = p.caveat
+    ? `<div class="preset-caveat">${escapeHtml(p.caveat)}</div>`
+    : '';
+  const rulesHtml = (p.rules_summary || []).map(r =>
+    `<div>→ <code>${escapeHtml(r.name)}</code>: ${renderRuleSummary(r)}</div>`
+  ).join('');
+
+  return `
+    <div class="preset-row" data-preset-id="${escapeHtml(p.id)}">
+      <div>
+        <label class="sec-toggle">
+          <input type="checkbox" ${p.enabled ? 'checked' : ''}
+                 onchange="onToggle(this, '${escapeHtml(p.id)}')">
+          <span class="slider"></span>
+        </label>
+      </div>
+      <div>
+        <div class="preset-title">${escapeHtml(p.title)}</div>
+        <div class="preset-desc">${escapeHtml(p.description)}</div>
+        <div class="preset-rules">${rulesHtml}</div>
+        ${caveatHtml}
+      </div>
+    </div>
+  `;
+}
+
+async function loadPresets() {
+  try {
+    const r = await fetch('/api/security/presets', { credentials: 'same-origin' });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const data = await r.json();
+
+    // Бэкенд возвращает {presets: [...], has_xray_inbounds: bool}.
+    // На всякий случай поддержим и legacy-формат (просто массив) —
+    // если кто-то накатит новый фронт на старый бэкенд, фронт не упадёт.
+    const presets = Array.isArray(data) ? data : (data.presets || []);
+    const hasXray = Array.isArray(data) ? true : !!data.has_xray_inbounds;
+
+    const banner = document.getElementById('naive-only-banner');
+    if (banner) {
+      banner.style.display = hasXray ? 'none' : 'flex';
+    }
+
+    if (presets.length === 0) {
+      container.innerHTML = '<div class="sec-loading">Нет доступных пресетов.</div>';
+      return;
+    }
+    container.innerHTML = presets.map(renderPreset).join('');
+  } catch (e) {
+    container.innerHTML = `<div class="sec-loading" style="color:var(--danger,#ef4444)">
+      Не удалось загрузить пресеты: ${escapeHtml(e.message)}.
+      Проверьте /api/security/presets через DevTools.
+    </div>`;
+  }
+}
+
+async function onToggle(checkbox, presetId) {
+  const desired = checkbox.checked;
+  const action = desired ? 'enable' : 'disable';
+  const wrapper = checkbox.closest('.sec-toggle');
+  wrapper.classList.add('busy');
+  checkbox.disabled = true;
+
+  try {
+    const r = await fetch(`/api/security/presets/${encodeURIComponent(presetId)}/${action}`, {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'X-CSRF-Token': window.csrfToken ? window.csrfToken() : '' },
+    });
+    if (!r.ok) {
+      let msg = `HTTP ${r.status}`;
+      try {
+        const err = await r.json();
+        if (err && err.error) msg = err.error;
+      } catch (_) {}
+      throw new Error(msg);
+    }
+    const updated = await r.json();
+    // Согласовываем чекбокс с фактическим состоянием от сервера
+    checkbox.checked = !!updated.enabled;
+  } catch (e) {
+    // Откатываем чекбокс в его прежнее состояние
+    checkbox.checked = !desired;
+    alert(`Не удалось ${desired ? 'включить' : 'выключить'} пресет: ${e.message}`);
+  } finally {
+    wrapper.classList.remove('busy');
+    checkbox.disabled = false;
+  }
+}
+
+loadPresets();
+</script>
+
+{% endblock %}

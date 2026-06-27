@@ -1,0 +1,1238 @@
+{% extends "base.html" %}
+{% block title %}Inbounds — ProxyPanel{% endblock %}
+{% block page_title %}Inbounds{% endblock %}
+{% block content %}
+
+<style>
+  .ib-columns { display:grid; grid-template-columns:1fr 1fr; gap:16px; align-items:start; }
+  /* Колонки грида должны уметь сжиматься уже своего содержимого, иначе
+     широкая таблица клиентов распирает колонку и страница уезжает вправо. */
+  .ib-columns > div { min-width: 0; }
+  .ib-item, .ib-item .card { min-width: 0; max-width: 100%; }
+  @media (max-width: 900px){ .ib-columns{ grid-template-columns:1fr; } }
+  .ib-col-head { display:flex; align-items:center; gap:8px; margin:0 2px 10px;
+                 color:var(--text-dim); font-size:12px; text-transform:uppercase; letter-spacing:.04em; }
+  .ib-col-head .count { margin-left:auto; color:var(--text-bright); font-weight:600; }
+  .ib-item { margin-bottom:10px; }
+  .ib-item .card { padding:0; overflow:hidden; }
+  .ib-head { display:flex; align-items:center; gap:10px; padding:12px 14px; cursor:pointer; }
+  .ib-head:hover { background:rgba(127,127,127,.06); }
+  .ib-head .chev { transition:transform .15s; color:var(--text-dim); flex-shrink:0; }
+  .ib-item.open .ib-head .chev { transform:rotate(90deg); }
+  .ib-meta { display:flex; flex-wrap:wrap; gap:6px 10px; align-items:center; min-width:0; }
+  .ib-tag { color:var(--text-bright); font-family:var(--mono); font-size:13px; }
+  .ib-actions { margin-left:auto; display:flex; gap:6px; flex-shrink:0; }
+  .ib-clients { display:none; border-top:1px solid var(--border); padding:12px 14px; }
+  .ib-item.open .ib-clients { display:block; }
+  .ib-empty-col { color:var(--text-dim); font-size:13px; padding:16px; text-align:center; }
+  .ib-clients table { width:100%; }
+  .ib-clients th, .ib-clients td { padding:6px 6px; font-size:12px; }
+  .ib-clients .btn-icon { padding:4px 7px; }
+  .ib-clients .table-wrap { overflow-x:auto; }
+</style>
+
+<div class="flex justify-between items-center mb-2" style="margin-bottom:20px">
+  <div class="flex gap-2">
+    <div></div>
+  </div>
+  <div class="flex gap-2">
+    <button class="btn btn-outline" onclick="exportBackup()" title="Скачать все inbounds с клиентами в JSON">
+      <i class="bi bi-download"></i> Экспорт
+    </button>
+    <button class="btn btn-outline" onclick="document.getElementById('import-file').click()" title="Восстановить inbounds с клиентами из JSON">
+      <i class="bi bi-upload"></i> Импорт
+    </button>
+    <input type="file" id="import-file" accept="application/json,.json" style="display:none" onchange="importBackup(this)">
+    <button class="btn btn-primary" onclick="openModal('modal-create')">
+      <i class="bi bi-plus-lg"></i> Новый Inbound
+    </button>
+  </div>
+</div>
+
+<div class="ib-columns" id="ib-columns">
+  <div>
+    <div class="ib-col-head"><i class="bi bi-hdd-network"></i> Xray inbounds <span class="count" id="cnt-xray">0</span></div>
+    <div id="col-xray"></div>
+  </div>
+  <div>
+    <div class="ib-col-head"><i class="bi bi-shield-lock"></i> NaiveProxy inbounds <span class="count" id="cnt-naive">0</span></div>
+    <div id="col-naive"></div>
+  </div>
+</div>
+
+<!-- Empty state: показывается, когда в БД ни одного inbound. Главная задача —
+     не пугать чистой таблицей, а сразу предложить три осмысленных шаблона. -->
+<div id="empty-state" class="card empty-state hidden">
+  <div class="empty-icon"><i class="bi bi-arrow-down-circle"></i></div>
+  <div class="empty-title">Создайте первый inbound</div>
+  <div class="empty-desc">
+    Inbound — это точка входа для клиентских подключений: порт, протокол
+    и транспорт. Выберите шаблон ниже или настройте вручную.
+  </div>
+  <div class="empty-actions">
+    <button class="btn btn-primary btn-sm" onclick="openWithTemplate('vless-ws-tls')">
+      <i class="bi bi-shield-lock"></i> VLESS + WS + TLS
+    </button>
+    <button class="btn btn-primary btn-sm" onclick="openWithTemplate('trojan-ws-tls')">
+      <i class="bi bi-shield-shaded"></i> Trojan + WS + TLS
+    </button>
+    <button class="btn btn-primary btn-sm" onclick="openWithTemplate('vless-reality')">
+      <i class="bi bi-mask"></i> VLESS + Reality
+    </button>
+    <button class="btn btn-outline btn-sm" onclick="openWithTemplate('naive')">
+      <i class="bi bi-incognito"></i> NaiveProxy
+    </button>
+    <button class="btn btn-outline btn-sm" onclick="openWithTemplate('shadowsocks')">
+      <i class="bi bi-key"></i> Shadowsocks
+    </button>
+  </div>
+  <div class="form-text" style="margin-top:18px">
+    Или <a href="#" onclick="openModal('modal-create');return false" style="color:var(--accent)">создать с нуля</a>
+  </div>
+</div>
+
+<!-- Create/Edit Modal -->
+<div class="modal-backdrop" id="modal-create">
+  <div class="modal-box" style="width:560px">
+    <div class="modal-title" id="modal-create-title">Новый Inbound</div>
+
+    <!-- Шаблоны: одним кликом заполняют форму разумными значениями -->
+    <div id="templates-section" class="form-group">
+      <label class="form-label">Быстрый старт</label>
+      <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px">
+        <button type="button" class="btn btn-outline btn-sm" onclick="applyTemplate('vless-ws-tls')">
+          <i class="bi bi-shield-lock"></i> VLESS + WS + TLS
+        </button>
+        <button type="button" class="btn btn-outline btn-sm" onclick="applyTemplate('trojan-ws-tls')">
+          <i class="bi bi-shield-shaded"></i> Trojan + WS + TLS
+        </button>
+        <button type="button" class="btn btn-outline btn-sm" onclick="applyTemplate('vless-reality')">
+          <i class="bi bi-mask"></i> VLESS + Reality
+        </button>
+        <button type="button" class="btn btn-outline btn-sm" onclick="applyTemplate('naive')">
+          <i class="bi bi-incognito"></i> NaiveProxy
+        </button>
+        <button type="button" class="btn btn-outline btn-sm" onclick="applyTemplate('shadowsocks')">
+          <i class="bi bi-key"></i> Shadowsocks
+        </button>
+      </div>
+      <div class="form-text">Заполнит поля разумными значениями — останется указать домен.</div>
+    </div>
+
+    <div class="form-group">
+      <label class="form-label">Ядро</label>
+      <select class="form-control" id="f-engine" onchange="onEngineChange()">
+        <option value="xray">Xray</option>
+        <option value="naive">NaiveProxy</option>
+      </select>
+    </div>
+
+    <div id="section-xray">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div class="form-group">
+          <label class="form-label">Протокол</label>
+          <select class="form-control" id="f-protocol">
+            <option value="vless">VLESS</option>
+            <option value="vmess">VMess</option>
+            <option value="trojan">Trojan</option>
+            <option value="shadowsocks">Shadowsocks</option>
+            <option value="socks">SOCKS5</option>
+            <option value="http">HTTP proxy</option>
+            <option value="dokodemo">Dokodemo-door</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Порт</label>
+          <input type="number" class="form-control" id="f-port" placeholder="443" oninput="updateFirewallHint(); updateRealitySharedInfo()">
+          <!-- Индикатор «открыт ли порт в UFW». Обновляется при изменении
+               поля порта или engine'а. Данные о UFW грузятся один раз при
+               открытии модалки через GET /api/system/firewall. -->
+          <div id="firewall-hint" style="margin-top:6px;font-size:11px;line-height:1.4;display:none"></div>
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div class="form-group">
+          <label class="form-label">Транспорт</label>
+          <select class="form-control" id="f-transport">
+            <option value="tcp">TCP</option>
+            <option value="ws">WebSocket</option>
+            <option value="grpc">gRPC</option>
+            <option value="kcp">mKCP</option>
+            <option value="h2">HTTP/2</option>
+            <option value="httpupgrade">HTTPUpgrade</option>
+            <option value="splithttp">SplitHTTP</option>
+          </select>
+        </div>
+        <div class="form-group" id="ws-path-group">
+          <label class="form-label">Путь (WS/H2)</label>
+          <input type="text" class="form-control" id="f-path" placeholder="/">
+        </div>
+      </div>
+      <div class="form-group" id="tls-group">
+        <label class="form-label" style="display:flex;align-items:center;gap:8px">
+          <input type="checkbox" id="f-tls" onchange="onTlsToggle()"> TLS
+        </label>
+        <div class="form-text">
+          Для Xray-инбаундов укажите путь к сертификату вручную через настройки.
+          Auto-ACME пока работает только для NaiveProxy (через Caddy).
+          <br><b>TLS и Reality взаимоисключающие</b> — включение TLS скроет
+          Reality-секцию и наоборот.
+        </div>
+      </div>
+
+      <!-- Reality settings: видны только когда инбаунд использует Reality.
+           Показываются автоматически при clickе шаблона "VLESS + Reality"
+           и при редактировании инбаунда, у которого reality_public_key
+           уже сохранён в transport_config. -->
+      <div id="reality-section" class="form-group hidden" style="border:1px solid var(--border);border-radius:8px;padding:14px;background:var(--surface2)">
+        <label class="form-label" style="margin-bottom:10px">
+          <i class="bi bi-mask"></i> Reality settings
+        </label>
+        <div class="form-text" style="margin-bottom:12px">
+          Reality маскирует TLS-handshake под чужой сайт (dest). Своего сертификата не нужно. Клиенту достаточно public key, server name и short ID — всё автоматически попадёт в vless:// ссылку.
+        </div>
+
+        <!-- Info-bar для shared-443 режима. Показывается когда port=443.
+             В этом режиме Reality становится фронтом, Caddy уходит на
+             127.0.0.1:8443. dest и serverNames заполняются автоматически
+             (используются наши panel/naive домены). См. бэкенд:
+             app/core/xray.py:_compute_reality_runtime_fields. -->
+        <div id="reality-shared-info" class="hidden" style="margin-bottom:12px;padding:10px 12px;border-radius:6px;background:rgba(64,156,255,0.10);border-left:3px solid #4096ff;font-size:13px;line-height:1.5">
+          <strong><i class="bi bi-info-circle"></i> Shared-443 режим</strong><br>
+          Этот Reality-инбаунд эксклюзивно занимает порт <code>443</code>.
+          Caddy при сохранении переедет на <code>127.0.0.1:8443</code>, и Reality будет
+          проксировать на него весь не-Reality трафик (NaiveProxy-клиенты, обращения к панели,
+          сканеры). Снаружи всё выглядит как единый HTTPS-сайт на 443.
+          Поля <em>Decoy (dest)</em> и <em>Server Names</em> в этом режиме заполняются
+          автоматически — используются домены вашей панели и NaiveProxy.
+        </div>
+
+        <!-- Advanced — dest/serverNames. По умолчанию свёрнуто.
+             В shared-режиме их значения сервером игнорируются (но в БД
+             сохраняются на случай выхода из shared). В классическом
+             Reality (port≠443) — обязательные поля. -->
+        <details id="reality-advanced" style="margin-bottom:12px">
+          <summary style="cursor:pointer;font-size:12px;color:var(--text-dim);user-select:none">
+            <i class="bi bi-sliders"></i> Advanced: dest / serverNames
+          </summary>
+          <div style="margin-top:10px">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+              <div>
+                <label class="form-label" style="font-size:11px">Decoy (dest)</label>
+                <input type="text" class="form-control" id="f-reality-dest" placeholder="www.cloudflare.com:443">
+              </div>
+              <div>
+                <label class="form-label" style="font-size:11px">Server Names (csv)</label>
+                <input type="text" class="form-control" id="f-reality-snames" placeholder="www.cloudflare.com">
+              </div>
+            </div>
+            <div class="form-text" style="margin-top:8px;font-size:11px">
+              В shared-443 режиме (port=443) эти поля игнорируются — сервер автоматически использует
+              <code>127.0.0.1:8443</code> и ваши panel/naive домены.
+            </div>
+          </div>
+        </details>
+
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px">
+          <div>
+            <label class="form-label" style="font-size:11px">Short IDs (csv, можно пусто)</label>
+            <input type="text" class="form-control" id="f-reality-sids" placeholder="">
+          </div>
+          <div>
+            <label class="form-label" style="font-size:11px">Public key (для клиента)</label>
+            <input type="text" class="form-control" id="f-reality-pubkey" readonly style="font-family:monospace;font-size:11px">
+          </div>
+        </div>
+        <div style="display:flex;justify-content:flex-end;margin-top:10px">
+          <button type="button" class="btn btn-outline btn-sm" onclick="onRegenKeysClick(this)">
+            <i class="bi bi-arrow-clockwise"></i> Сгенерировать ключи
+          </button>
+        </div>
+        <!-- Private key храним в скрытом инпуте — он отправляется на сервер,
+             пользователю показывать не нужно. -->
+        <input type="hidden" id="f-reality-privkey">
+      </div>
+    </div>
+
+    <div id="section-naive" class="hidden">
+      <div class="form-group">
+        <label class="form-label">probe_resistance secret URL</label>
+        <input type="text" class="form-control" id="f-probe" placeholder="secret-path-12345">
+        <div class="form-text">Скрытый URL для probe resistance. Оставьте пустым для отключения.</div>
+      </div>
+    </div>
+
+    <div class="form-group">
+      <label class="form-label">Тег (уникальный идентификатор)</label>
+      <input type="text" class="form-control" id="f-tag" placeholder="vless-ws-443">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Домен (для TLS / NaiveProxy)</label>
+      <input type="text" class="form-control" id="f-domain" placeholder="example.com">
+    </div>
+
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal('modal-create')">Отмена</button>
+      <button class="btn btn-primary" onclick="saveInbound()">Сохранить</button>
+    </div>
+  </div>
+</div>
+
+<!-- Confirm delete modal -->
+<div class="modal-backdrop" id="modal-delete-inbound">
+  <div class="modal-box" style="width:420px">
+    <div class="modal-title" style="color:var(--danger)">Удалить inbound?</div>
+    <p id="modal-delete-inbound-text" style="color:var(--text-dim);font-size:13px;margin:12px 0 20px"></p>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal('modal-delete-inbound')">Отмена</button>
+      <button class="btn btn-danger" id="modal-delete-inbound-confirm">Удалить</button>
+    </div>
+  </div>
+</div>
+
+<!-- Client create/edit modal -->
+<div class="modal-backdrop" id="modal-client">
+  <div class="modal-box">
+    <div class="modal-title" id="modal-client-title">Новый клиент</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+      <div class="form-group">
+        <label class="form-label">Имя / Remark</label>
+        <input type="text" class="form-control" id="c-name" placeholder="user01">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Email (для статистики)</label>
+        <input type="text" class="form-control" id="c-email" placeholder="user01@panel">
+      </div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+      <div class="form-group">
+        <label class="form-label">UUID (авто если пусто)</label>
+        <input type="text" class="form-control" id="c-uuid" placeholder="авто">
+      </div>
+      <div class="form-group" id="c-flow-group">
+        <label class="form-label">Flow (VLESS XTLS)</label>
+        <select class="form-control" id="c-flow">
+          <option value="">нет</option>
+          <option value="xtls-rprx-vision">xtls-rprx-vision</option>
+          <option value="xtls-rprx-vision-udp443">xtls-rprx-vision-udp443</option>
+        </select>
+      </div>
+    </div>
+    <div id="c-password-section">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div class="form-group">
+          <label class="form-label">Логин (NaiveProxy / SOCKS)</label>
+          <input type="text" class="form-control" id="c-username">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Пароль</label>
+          <input type="text" class="form-control" id="c-password" placeholder="Оставьте пустым чтобы не менять">
+          <div class="form-text hidden" id="c-password-hint"></div>
+        </div>
+      </div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px">
+      <div class="form-group">
+        <label class="form-label">Срок (дней)</label>
+        <input type="number" class="form-control" id="c-days" placeholder="0 = бессрочно">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Лимит ↑ (GB)</label>
+        <input type="number" class="form-control" id="c-limit-up" placeholder="0 = безлимит" step="0.1">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Лимит ↓ (GB)</label>
+        <input type="number" class="form-control" id="c-limit-down" placeholder="0 = безлимит" step="0.1">
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal('modal-client');resetClientForm()">Отмена</button>
+      <button class="btn btn-primary" onclick="saveClient()">Сохранить</button>
+    </div>
+  </div>
+</div>
+
+<!-- Link modal: vless://… + QR -->
+<div class="modal-backdrop" id="modal-link">
+  <div class="modal-box" style="width:520px">
+    <div class="modal-title" id="link-modal-title">Ссылка для подключения</div>
+    <div id="qr-container" style="display:flex;justify-content:center;padding:12px 0 16px">
+      <div id="qr-canvas" style="background:white;padding:12px;border-radius:var(--radius)"></div>
+    </div>
+    <div class="code-block" id="link-text" onclick="copyText(this.textContent)"></div>
+    <div class="form-text mt-1">Нажмите на ссылку для копирования, либо отсканируйте QR-код.</div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal('modal-link')">Закрыть</button>
+      <button class="btn btn-primary" onclick="copyText(document.getElementById('link-text').textContent)">
+        <i class="bi bi-clipboard"></i> Скопировать
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- Subscription URL modal -->
+<div class="modal-backdrop" id="modal-sub">
+  <div class="modal-box" style="width:520px">
+    <div class="modal-title">Subscription URL</div>
+    <div class="form-text" style="margin-bottom:12px">
+      Универсальный URL для приложений вроде v2rayN, NekoBox, Streisand, sing-box.
+      Клиент сам подтянет конфиг и будет автоматически обновляться.
+    </div>
+    <div id="sub-qr-container" style="display:flex;justify-content:center;padding:8px 0 16px">
+      <div id="sub-qr-canvas" style="background:white;padding:12px;border-radius:var(--radius)"></div>
+    </div>
+    <div class="code-block" id="sub-link-text" onclick="copyText(this.textContent)"></div>
+    <div class="modal-footer">
+      <button class="btn btn-danger" onclick="rotateSubToken()">
+        <i class="bi bi-arrow-clockwise"></i> Сменить URL
+      </button>
+      <div style="flex:1"></div>
+      <button class="btn btn-outline" onclick="closeModal('modal-sub')">Закрыть</button>
+      <button class="btn btn-primary" onclick="copyText(document.getElementById('sub-link-text').textContent)">
+        <i class="bi bi-clipboard"></i> Скопировать
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- Confirm delete client modal -->
+<div class="modal-backdrop" id="modal-delete-client">
+  <div class="modal-box" style="width:400px">
+    <div class="modal-title" style="color:var(--danger)">Удалить клиента?</div>
+    <p id="modal-delete-client-text" style="color:var(--text-dim);font-size:13px;margin:12px 0 20px"></p>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal('modal-delete-client')">Отмена</button>
+      <button class="btn btn-danger" id="modal-delete-client-confirm">Удалить</button>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+{% block scripts %}
+<!-- qrcode.js — генератор QR в DOM. ~9 KB, CDN. -->
+<script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
+<script>
+let inbounds = [];
+let editId = null;
+
+async function load() {
+  inbounds = await api('GET', '/api/inbounds/');
+  render();
+}
+
+function render() {
+  const empty = document.getElementById('empty-state');
+  const cols = document.getElementById('ib-columns');
+
+  // Empty state — только когда вообще ни одного inbound в БД.
+  if (!inbounds.length) {
+    cols.classList.add('hidden');
+    empty.classList.remove('hidden');
+    return;
+  }
+  cols.classList.remove('hidden');
+  empty.classList.add('hidden');
+
+  const xray  = inbounds.filter(i => i.engine === 'xray');
+  const naive = inbounds.filter(i => i.engine === 'naive');
+  document.getElementById('cnt-xray').textContent  = xray.length;
+  document.getElementById('cnt-naive').textContent = naive.length;
+  document.getElementById('col-xray').innerHTML  = renderColumn(xray,  'Нет Xray-inbounds');
+  document.getElementById('col-naive').innerHTML = renderColumn(naive, 'Нет NaiveProxy-inbounds');
+}
+
+function renderColumn(list, emptyMsg) {
+  if (!list.length) return `<div class="card ib-empty-col">${emptyMsg}</div>`;
+  return list.map(ib => {
+    const portDomain = ib.engine === 'naive' ? (ib.domain || ':443') : (ib.port || '—');
+    const transport  = ib.engine === 'xray' ? (ib.transport || 'tcp') : 'https';
+    const tlsBadge = (ib.tls_enabled || ib.engine === 'naive')
+      ? '<span class="badge badge-active"><i class="bi bi-lock-fill"></i> TLS</span>'
+      : '<span class="badge badge-inactive">plain</span>';
+    const statusBadge = ib.enabled
+      ? '<span class="badge badge-active">active</span>'
+      : '<span class="badge badge-inactive">disabled</span>';
+    return `<div class="ib-item" id="ib-item-${ib.id}">
+      <div class="card">
+        <div class="ib-head" onclick="toggleInbCard(${ib.id})">
+          <i class="bi bi-chevron-right chev"></i>
+          <div class="ib-meta">
+            <span class="ib-tag">${ib.tag}</span>
+            <span class="proto proto-${ib.protocol}">${ib.protocol.toUpperCase()}</span>
+            <span class="text-dim">${portDomain}</span>
+            <code class="text-dim">${transport}</code>
+            ${tlsBadge} ${statusBadge}
+            <span class="badge" id="ib-cc-${ib.id}"><i class="bi bi-people"></i> ${ib.client_count}</span>
+          </div>
+          <div class="ib-actions">
+            <button class="btn btn-outline btn-sm btn-icon" onclick="event.stopPropagation();editInbound(${ib.id})" title="Редактировать"><i class="bi bi-pencil"></i></button>
+            <button class="btn btn-outline btn-sm btn-icon" onclick="event.stopPropagation();toggleInbound(${ib.id})" title="Вкл/Выкл"><i class="bi bi-${ib.enabled?'pause':'play'}-fill"></i></button>
+            <button class="btn btn-danger btn-sm btn-icon" onclick="event.stopPropagation();deleteInbound(${ib.id})" title="Удалить"><i class="bi bi-trash"></i></button>
+          </div>
+        </div>
+        <div class="ib-clients" id="ib-clients-${ib.id}">
+          <div class="text-dim" style="font-size:13px">Список клиентов появится здесь (итерация 2).</div>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+// ── Клиенты инлайн в карточке inbound ──────────────────────────────
+let clientsByInb = {};   // ibId -> [clients]
+let clientInb = {};      // clientId -> ibId
+let currentSubClient = null;
+
+async function toggleInbCard(id) {
+  const item = document.getElementById('ib-item-' + id);
+  if (!item) return;
+  const opening = !item.classList.contains('open');
+  item.classList.toggle('open');
+  if (opening && !clientsByInb[id]) {
+    await loadInbClients(id);
+  }
+}
+
+async function loadInbClients(ibId) {
+  const panel = document.getElementById('ib-clients-' + ibId);
+  if (panel) panel.innerHTML = '<div class="text-dim" style="font-size:13px">Загрузка…</div>';
+  try {
+    const cls = await api('GET', `/api/clients/inbound/${ibId}`);
+    clientsByInb[ibId] = cls;
+    cls.forEach(c => { clientInb[c.id] = ibId; });
+    renderInbClients(ibId);
+  } catch (e) {
+    if (panel) panel.innerHTML = `<div class="text-danger" style="font-size:13px">Ошибка загрузки: ${e.message}</div>`;
+  }
+}
+
+function renderInbClients(ibId) {
+  const panel = document.getElementById('ib-clients-' + ibId);
+  if (!panel) return;
+  const cls = clientsByInb[ibId] || [];
+  const toolbar = `<div class="flex justify-between items-center" style="margin-bottom:10px">
+      <span class="text-dim" style="font-size:12px">${cls.length} клиент(ов)</span>
+      <button class="btn btn-primary btn-sm" onclick="addClient(${ibId})"><i class="bi bi-plus-lg"></i> Добавить клиента</button>
+    </div>`;
+  if (!cls.length) {
+    panel.innerHTML = toolbar + '<div class="text-dim" style="font-size:13px;padding:4px 0">Пока нет клиентов.</div>';
+    return;
+  }
+  panel.innerHTML = toolbar + `<div class="table-wrap"><table class="clients-mini"><thead><tr>
+      <th>Имя</th><th>ID / Логин</th><th>Трафик</th><th>Истекает</th><th>Статус</th><th></th>
+    </tr></thead><tbody>` + cls.map(c => {
+    const statusBadge = c.is_active ? 'badge-active' : c.is_expired ? 'badge-danger' : c.is_over_limit ? 'badge-warn' : 'badge-inactive';
+    const statusText  = c.is_active ? 'active' : c.is_expired ? 'expired' : c.is_over_limit ? 'over limit' : 'disabled';
+    const idStr = c.uuid ? c.uuid.substring(0, 8) + '…' : (c.username || '—');
+    const linkBtns = c.link ? `
+        <button class="btn btn-outline btn-sm btn-icon" data-link="${encodeURIComponent(c.link)}" data-name="${encodeURIComponent(c.name)}" onclick="showLinkEncoded(this)" title="Ссылка и QR-код"><i class="bi bi-qr-code"></i></button>
+        <button class="btn btn-outline btn-sm btn-icon" data-token="${c.share_token || ''}" data-name="${encodeURIComponent(c.name)}" onclick="showSubFromBtn(this)" title="Subscription URL" ${c.share_token ? '' : 'disabled'}><i class="bi bi-broadcast"></i></button>` : '';
+    return `<tr>
+        <td><strong style="color:var(--text-bright)">${c.name}</strong></td>
+        <td><code class="text-dim" style="font-size:11px">${idStr}</code></td>
+        <td style="white-space:nowrap;font-size:11px;line-height:1.45">↑ ${fmtBytes(c.traffic_used_up)}<br>↓ ${fmtBytes(c.traffic_used_down)}</td>
+        <td>${c.expire_at ? `<span class="${c.is_expired ? 'text-danger' : ''}">${fmtDate(c.expire_at)}</span>` : '<span class="text-dim">∞</span>'}</td>
+        <td><span class="badge ${statusBadge}">${statusText}</span></td>
+        <td><div class="flex" style="justify-content:flex-end;gap:3px">
+          ${linkBtns}
+          <button class="btn btn-outline btn-sm btn-icon" onclick="editClient(${c.id})" title="Редактировать"><i class="bi bi-pencil"></i></button>
+          <button class="btn btn-outline btn-sm btn-icon" onclick="resetTraffic(${c.id})" title="Сбросить трафик"><i class="bi bi-arrow-counterclockwise"></i></button>
+          <button class="btn btn-outline btn-sm btn-icon" onclick="toggleClient(${c.id})" title="Вкл/Выкл"><i class="bi bi-${c.enabled ? 'pause' : 'play'}-fill"></i></button>
+          <button class="btn btn-danger btn-sm btn-icon" onclick="deleteClient(${c.id})" title="Удалить"><i class="bi bi-trash"></i></button>
+        </div></td>
+      </tr>`;
+  }).join('') + '</tbody></table></div>';
+}
+
+// Перезагрузить клиентов конкретного inbound и обновить счётчик, НЕ сворачивая карточку.
+async function reloadAfterClient(clientId) {
+  const ibId = clientInb[clientId];
+  if (ibId == null) { load(); return; }
+  await loadInbClients(ibId);
+  const cc = document.getElementById('ib-cc-' + ibId);
+  if (cc) cc.innerHTML = `<i class="bi bi-people"></i> ${(clientsByInb[ibId] || []).length}`;
+}
+
+// ── Действия над клиентом ───────────────────────────────────────────
+async function resetTraffic(id) {
+  try { await api('POST', `/api/clients/${id}/reset-traffic`); toast('Трафик сброшен'); await reloadAfterClient(id); }
+  catch (e) { toast(e.message, 'error'); }
+}
+async function toggleClient(id) {
+  try { const r = await api('POST', `/api/clients/${id}/toggle`); toast(r.enabled ? 'Включён' : 'Выключен'); await reloadAfterClient(id); pollApplyStatus(r.apply_id); }
+  catch (e) { toast(e.message, 'error'); }
+}
+async function deleteClient(id) {
+  const ibId = clientInb[id];
+  const c = (clientsByInb[ibId] || []).find(x => x.id === id);
+  document.getElementById('modal-delete-client-text').textContent =
+    `Удалить клиента "${c ? c.name : ''}"? Это действие нельзя отменить.`;
+  openModal('modal-delete-client');
+  document.getElementById('modal-delete-client-confirm').onclick = async () => {
+    closeModal('modal-delete-client');
+    try { const r = await api('DELETE', `/api/clients/${id}`); toast('Удалено'); pollApplyStatus(r.apply_id); }
+    catch (e) { toast(e.message, 'error'); }
+    await reloadAfterClient(id);
+  };
+}
+
+// ── Ссылка + QR / Subscription ──────────────────────────────────────
+function showLinkEncoded(btn) {
+  showLink(decodeURIComponent(btn.getAttribute('data-link')), decodeURIComponent(btn.getAttribute('data-name') || ''));
+}
+function showLink(link, name) {
+  document.getElementById('link-modal-title').textContent = name ? `Ссылка: ${name}` : 'Ссылка для подключения';
+  document.getElementById('link-text').textContent = link;
+  renderQR('qr-canvas', link, 220);
+  openModal('modal-link');
+}
+function showSubFromBtn(btn) {
+  const token = btn.getAttribute('data-token');
+  if (!token) { toast('У этого клиента ещё нет токена подписки', 'error'); return; }
+  // Находим клиента по токену, чтобы знать его id для смены токена.
+  let found = null;
+  for (const ib in clientsByInb) {
+    const c = (clientsByInb[ib] || []).find(x => x.share_token === token);
+    if (c) { found = c; break; }
+  }
+  currentSubClient = found ? found.id : null;
+  const subUrl = `${location.origin}/sub/${token}`;
+  document.getElementById('sub-link-text').textContent = subUrl;
+  renderQR('sub-qr-canvas', subUrl, 220);
+  openModal('modal-sub');
+}
+async function rotateSubToken() {
+  if (!currentSubClient) return;
+  if (!confirm('Старый URL подписки сразу перестанет работать. Продолжить?')) return;
+  try {
+    const r = await api('POST', `/api/clients/${currentSubClient}/rotate-token`);
+    toast('URL подписки обновлён');
+    await reloadAfterClient(currentSubClient);
+    const subUrl = `${location.origin}/sub/${r.share_token}`;
+    document.getElementById('sub-link-text').textContent = subUrl;
+    renderQR('sub-qr-canvas', subUrl, 220);
+    openModal('modal-sub');
+  } catch (e) { toast(e.message, 'error'); }
+}
+function renderQR(elId, text, size) {
+  const el = document.getElementById(elId);
+  el.innerHTML = '';
+  new QRCode(el, { text, width: size, height: size, colorDark: '#000000', colorLight: '#ffffff', correctLevel: QRCode.CorrectLevel.M });
+}
+
+// ── Создание / редактирование клиента ───────────────────────────────
+let clientModalInb = null;   // inbound, куда добавляем нового клиента
+let editClientId = null;
+
+function addClient(ibId) {
+  resetClientForm();
+  clientModalInb = ibId;
+  openModal('modal-client');
+}
+
+function resetClientForm() {
+  ['c-name','c-email','c-uuid','c-username','c-password','c-days','c-limit-up','c-limit-down'].forEach(id => {
+    document.getElementById(id).value = '';
+  });
+  document.getElementById('c-flow').value = '';
+  document.getElementById('c-password').placeholder = 'Оставьте пустым чтобы не менять';
+  document.getElementById('c-password-hint').classList.add('hidden');
+  editClientId = null;
+  document.getElementById('modal-client-title').textContent = 'Новый клиент';
+}
+
+function editClient(id) {
+  const ibId = clientInb[id];
+  const c = (clientsByInb[ibId] || []).find(x => x.id === id);
+  if (!c) return;
+  editClientId = id;
+  clientModalInb = ibId;
+  document.getElementById('modal-client-title').textContent = 'Редактировать: ' + c.name;
+  document.getElementById('c-name').value = c.name;
+  document.getElementById('c-email').value = c.email || '';
+  document.getElementById('c-uuid').value = c.uuid || '';
+  document.getElementById('c-username').value = c.username || '';
+  document.getElementById('c-password').value = '';
+  const hint = document.getElementById('c-password-hint');
+  if (c.password) { hint.textContent = 'Текущий пароль сохранён. Введите новый чтобы изменить.'; hint.classList.remove('hidden'); }
+  else hint.classList.add('hidden');
+  document.getElementById('c-flow').value = c.flow || '';
+  document.getElementById('c-days').value = '';
+  document.getElementById('c-limit-up').value = c.traffic_limit_up ? (c.traffic_limit_up / 1073741824).toFixed(1) : '';
+  document.getElementById('c-limit-down').value = c.traffic_limit_down ? (c.traffic_limit_down / 1073741824).toFixed(1) : '';
+  openModal('modal-client');
+}
+
+async function saveClient() {
+  const gbToBytes = v => { const n = parseFloat(v); return isNaN(n) || n <= 0 ? 0 : Math.round(n * 1073741824); };
+  const daysVal = parseInt(document.getElementById('c-days').value);
+  const passVal = document.getElementById('c-password').value.trim();
+  const body = {
+    name:     document.getElementById('c-name').value.trim(),
+    email:    document.getElementById('c-email').value.trim(),
+    username: document.getElementById('c-username').value.trim(),
+    flow:     document.getElementById('c-flow').value || null,
+    traffic_limit_up:   gbToBytes(document.getElementById('c-limit-up').value),
+    traffic_limit_down: gbToBytes(document.getElementById('c-limit-down').value),
+  };
+  if (!editClientId) { const uuidVal = document.getElementById('c-uuid').value.trim(); if (uuidVal) body.uuid = uuidVal; }
+  if (passVal) body.password = passVal;
+  if (!isNaN(daysVal) && daysVal > 0) body.expire_days = daysVal;
+
+  const targetInb = clientModalInb;
+  const btn = document.querySelector('#modal-client .btn-primary');
+  const origText = btn ? btn.textContent : '';
+  if (btn) { btn.disabled = true; btn.textContent = 'Сохраняем…'; }
+  try {
+    let r;
+    if (editClientId) { r = await api('PUT', `/api/clients/${editClientId}`, body); toast('Клиент обновлён'); }
+    else { r = await api('POST', `/api/clients/inbound/${targetInb}`, body); toast('Клиент добавлен'); }
+    closeModal('modal-client'); resetClientForm();
+    pollApplyStatus(r.apply_id);
+    if (targetInb != null) {
+      await loadInbClients(targetInb);
+      const cc = document.getElementById('ib-cc-' + targetInb);
+      if (cc) cc.innerHTML = `<i class="bi bi-people"></i> ${(clientsByInb[targetInb] || []).length}`;
+      const item = document.getElementById('ib-item-' + targetInb);
+      if (item) item.classList.add('open');
+    }
+  } catch (e) { toast(e.message, 'error'); }
+  finally { if (btn) { btn.disabled = false; btn.textContent = origText; } }
+}
+
+document.getElementById('modal-client').addEventListener('click', e => {
+  if (e.target === e.currentTarget) { closeModal('modal-client'); resetClientForm(); }
+});
+
+function onEngineChange() {
+  const engine = document.getElementById('f-engine').value;
+  document.getElementById('section-xray').classList.toggle('hidden', engine === 'naive');
+  document.getElementById('section-naive').classList.toggle('hidden', engine === 'xray');
+  if (engine === 'naive') {
+    document.getElementById('f-protocol').value = 'naive';
+  }
+}
+
+function resetForm() {
+  ['f-tag','f-domain','f-port','f-path','f-probe',
+   'f-reality-dest','f-reality-snames','f-reality-sids',
+   'f-reality-pubkey','f-reality-privkey'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.value = '';
+  });
+  document.getElementById('f-engine').value = 'xray';
+  document.getElementById('f-protocol').value = 'vless';
+  document.getElementById('f-transport').value = 'tcp';
+  document.getElementById('f-tls').checked = false;
+  showRealitySection(false);
+  onEngineChange();
+  // Шаблоны видны только при создании нового inbound — при редактировании
+  // пользователь уже выбрал параметры, шаблон их затрёт.
+  document.getElementById('templates-section').classList.remove('hidden');
+  editId = null;
+  document.getElementById('modal-create-title').textContent = 'Новый Inbound';
+}
+
+// ─────────────────────────────────────────────────
+// Templates: одним кликом заполняют форму типовыми значениями.
+// Не делают submit — пользователь должен указать домен и тег.
+// ─────────────────────────────────────────────────
+const TEMPLATES = {
+  'vless-ws-tls': {
+    label: 'VLESS + WS + TLS',
+    engine: 'xray', protocol: 'vless', port: 443,
+    transport: 'ws', path: '/vless', tls: true,
+  },
+  'trojan-ws-tls': {
+    label: 'Trojan + WS + TLS',
+    engine: 'xray', protocol: 'trojan', port: 443,
+    transport: 'ws', path: '/trojan', tls: true,
+  },
+  'vless-reality': {
+    label: 'VLESS + Reality',
+    engine: 'xray', protocol: 'vless', port: 443,
+    transport: 'tcp', path: '', tls: false,
+    // reality: true — флаг для applyTemplate, чтобы он подёрнул /reality-keys
+    // и заполнил Reality-секцию. Сами поля заполняются в applyTemplate.
+    // port=443: shared-443 режим. Caddy автоматически уйдёт на 127.0.0.1:8443,
+    // Reality станет фронтом, проксируя non-Reality трафик обратно на Caddy.
+    // dest/serverNames игнорируются в shared (заполняются сервером авто).
+    reality: true,
+  },
+  'naive': {
+    label: 'NaiveProxy',
+    engine: 'naive', protocol: 'naive', port: 443,
+    transport: 'tcp', path: '', tls: true,
+  },
+  'shadowsocks': {
+    label: 'Shadowsocks',
+    engine: 'xray', protocol: 'shadowsocks', port: 8388,
+    transport: 'tcp', path: '', tls: false,
+  },
+};
+
+async function applyTemplate(key) {
+  const t = TEMPLATES[key];
+  if (!t) return;
+
+  document.getElementById('f-engine').value = t.engine;
+  onEngineChange();   // переключит видимость section-xray / section-naive
+
+  // protocol устанавливаем после onEngineChange — иначе Naive перезапишет
+  // в 'naive' даже когда выбран Xray-шаблон.
+  if (t.engine === 'xray') {
+    document.getElementById('f-protocol').value = t.protocol;
+  }
+  document.getElementById('f-port').value = t.port;
+  document.getElementById('f-transport').value = t.transport;
+  document.getElementById('f-path').value = t.path || '';
+  document.getElementById('f-tls').checked = t.tls;
+
+  // Тэг — короткий human-readable + random suffix для уникальности.
+  // Пользователь может переписать; main задача — чтобы он сразу был валидным.
+  const suffix = Math.random().toString(36).slice(2, 6);
+  document.getElementById('f-tag').value = `${key}-${suffix}`;
+
+  // Reality: показываем секцию, выписываем ключи у бэкенда, заполняем
+  // разумными дефолтами в advanced-секции. В shared-443 режиме (port=443)
+  // dest/serverNames игнорируются — оставляем пустыми, чтобы юзер не
+  // путался при раскрытии advanced. В классическом Reality (port!=443) —
+  // ставим cloudflare как decoy (широко распространённая цель с
+  // предсказуемым TLS-handshake'ом).
+  if (t.reality) {
+    if (t.port === 443) {
+      document.getElementById('f-reality-dest').value = '';
+      document.getElementById('f-reality-snames').value = '';
+    } else {
+      document.getElementById('f-reality-dest').value = 'www.cloudflare.com:443';
+      document.getElementById('f-reality-snames').value = 'www.cloudflare.com';
+    }
+    document.getElementById('f-reality-sids').value = '';
+    showRealitySection(true);
+    try {
+      await generateRealityKeys();
+    } catch (e) {
+      // Не валим UX, если ключи не подтянулись — пользователь сможет
+      // нажать "Перегенерировать" в форме руками.
+      toast('Не удалось получить Reality-ключи: ' + e.message, 'error');
+    }
+  } else {
+    showRealitySection(false);
+  }
+
+  toast(`Шаблон применён: ${t.label}`);
+}
+
+// Управление видимостью Reality-секции.
+// Когда Reality активен — прячем весь блок TLS (и сбрасываем чекбокс).
+// Когда выключаем — поля Reality чистятся, чтобы случайно не уехали в save.
+function showRealitySection(visible) {
+  const sec = document.getElementById('reality-section');
+  const tlsGroup = document.getElementById('tls-group');
+  if (!sec) return;
+  sec.classList.toggle('hidden', !visible);
+  if (tlsGroup) tlsGroup.classList.toggle('hidden', visible);
+  if (visible) {
+    const tls = document.getElementById('f-tls');
+    if (tls) tls.checked = false;
+  } else {
+    // Чистим Reality-поля, чтобы они не уехали в transport_config при save
+    ['f-reality-dest','f-reality-snames','f-reality-sids',
+     'f-reality-pubkey','f-reality-privkey'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.value = '';
+    });
+  }
+  // Обновить состояние shared-443 info-bar / advanced-collapse.
+  updateRealitySharedInfo();
+}
+
+// Shared-443 info-bar показывается когда Reality-секция видна И port=443.
+// В этом режиме сервер игнорирует dest/serverNames из формы и сам подставляет
+// 127.0.0.1:8443 + наши panel/naive домены. Advanced-раскрывашка
+// автоматически сворачивается (юзер всё равно ничего полезного там не задаст),
+// но остаётся доступной кнопкой — на случай выхода из shared-режима.
+// См. бэкенд: app/core/xray.py:_compute_reality_runtime_fields.
+function updateRealitySharedInfo() {
+  const sec = document.getElementById('reality-section');
+  const info = document.getElementById('reality-shared-info');
+  const adv  = document.getElementById('reality-advanced');
+  if (!sec || !info || !adv) return;
+  const realityVisible = !sec.classList.contains('hidden');
+  const port = parseInt(document.getElementById('f-port').value, 10);
+  const shared = realityVisible && port === 443;
+  info.classList.toggle('hidden', !shared);
+  // Свернуть advanced когда shared. Не раскрывать принудительно при выходе —
+  // пользователь сам решит.
+  if (shared && adv.open) {
+    adv.open = false;
+  }
+}
+
+// Тоггл TLS-чекбокса: если включают TLS — Reality-секцию надо убрать,
+// чтобы не было двух взаимоисключающих security в одном инбаунде.
+function onTlsToggle() {
+  const tls = document.getElementById('f-tls');
+  if (tls && tls.checked) {
+    showRealitySection(false);
+  }
+}
+
+// Запрашивает у бэкенда новую пару X25519-ключей и заполняет
+// public/private поля. Возвращает promise, бросает при ошибке.
+async function generateRealityKeys() {
+  const r = await api('POST', '/api/inbounds/reality-keys', {});
+  // api() уже разворачивает JSON и кидает на не-200
+  document.getElementById('f-reality-privkey').value = r.private_key || '';
+  document.getElementById('f-reality-pubkey').value  = r.public_key  || '';
+}
+
+// Обёртка для кнопки «Сгенерировать ключи». В отличие от голого
+// generateRealityKeys() — обрабатывает ошибки видимо (toast),
+// блокирует кнопку на время запроса (визуальный feedback), и при
+// успехе показывает позитивный toast.
+async function onRegenKeysClick(btn) {
+  if (btn) {
+    btn.disabled = true;
+    btn.dataset._origText = btn.innerHTML;
+    btn.innerHTML = '<i class="bi bi-hourglass-split"></i> Генерируем…';
+  }
+  try {
+    await generateRealityKeys();
+    toast('Ключи сгенерированы', 'success');
+  } catch (e) {
+    toast('Не удалось сгенерировать ключи: ' + e.message, 'error');
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = btn.dataset._origText || 'Сгенерировать ключи';
+    }
+  }
+}
+
+// Из empty-state: открыть модалку и сразу применить шаблон.
+function openWithTemplate(key) {
+  resetForm();
+  openModal('modal-create');
+  applyTemplate(key);
+}
+
+async function editInbound(id) {
+  const ib = inbounds.find(i => i.id === id);
+  if (!ib) return;
+  editId = id;
+  document.getElementById('modal-create-title').textContent = 'Редактировать: ' + ib.tag;
+  document.getElementById('f-engine').value = ib.engine;
+  document.getElementById('f-protocol').value = ib.protocol;
+  document.getElementById('f-port').value = ib.port || '';
+  document.getElementById('f-domain').value = ib.domain || '';
+  document.getElementById('f-tag').value = ib.tag;
+  document.getElementById('f-transport').value = ib.transport || 'tcp';
+  document.getElementById('f-path').value = ib.transport_config?.path || '';
+  document.getElementById('f-tls').checked = ib.tls_enabled;
+  document.getElementById('f-probe').value = '';  // probe-secret скрыт в списке — подтянем ниже
+
+  // Reality-поля: показываем секцию, если у инбаунда есть reality_public_key
+  // в transport_config. Иначе — секция скрыта.
+  const tc = ib.transport_config || {};
+  if (tc.reality_public_key) {
+    document.getElementById('f-reality-dest').value = tc.reality_dest || '';
+    document.getElementById('f-reality-snames').value = (tc.reality_server_names || []).join(', ');
+    document.getElementById('f-reality-sids').value = (tc.reality_short_ids || []).join(', ');
+    document.getElementById('f-reality-pubkey').value = tc.reality_public_key || '';
+    document.getElementById('f-reality-privkey').value = tc.reality_private_key || '';
+    showRealitySection(true);
+  } else {
+    showRealitySection(false);
+  }
+
+  // При редактировании шаблоны бесполезны и опасны (перезапишут поля),
+  // поэтому скрываем секцию.
+  document.getElementById('templates-section').classList.add('hidden');
+  onEngineChange();
+  openModal('modal-create');
+
+  // Секрет probe-resistance не приходит в общем списке inbound'ов (скрыт),
+  // поэтому подтягиваем его отдельным запросом и подставляем в поле. Без
+  // этого сохранение записывало бы пустой секрет поверх существующего.
+  if (ib.engine === 'naive') {
+    try {
+      const s = await api('GET', `/api/inbounds/${id}/secret`);
+      document.getElementById('f-probe').value = s.probe_resistance_secret || '';
+    } catch (e) { /* не критично: оставляем поле пустым */ }
+  }
+}
+
+async function saveInbound() {
+  const engine = document.getElementById('f-engine').value;
+
+  // Собираем transport_config. path — для WS/H2; reality_* — для Reality.
+  // Если Reality-секция скрыта или ключей нет — не отправляем их вообще,
+  // чтобы случайно не «включить» Reality на TLS-инбаунде.
+  const tcfg = { path: document.getElementById('f-path').value || '/' };
+  const realityVisible = !document.getElementById('reality-section').classList.contains('hidden');
+  const privKey = document.getElementById('f-reality-privkey').value.trim();
+  if (realityVisible && privKey) {
+    // csv → list, пустые значения отфильтровываем
+    const csv = id => document.getElementById(id).value
+      .split(',').map(s => s.trim()).filter(Boolean);
+    tcfg.reality_dest         = document.getElementById('f-reality-dest').value.trim();
+    tcfg.reality_server_names = csv('f-reality-snames');
+    tcfg.reality_short_ids    = csv('f-reality-sids');
+    tcfg.reality_private_key  = privKey;
+    tcfg.reality_public_key   = document.getElementById('f-reality-pubkey').value.trim();
+    // Short IDs: если пользователь не указал ни одного — Xray ждёт массив
+    // хотя бы с пустой строкой. Подставляем дефолт.
+    if (tcfg.reality_short_ids.length === 0) {
+      tcfg.reality_short_ids = [""];
+    }
+  }
+
+  const body = {
+    engine,
+    tag: document.getElementById('f-tag').value.trim(),
+    protocol: engine === 'naive' ? 'naive' : document.getElementById('f-protocol').value,
+    port: parseInt(document.getElementById('f-port').value) || null,
+    domain: document.getElementById('f-domain').value.trim() || null,
+    tls_enabled: document.getElementById('f-tls').checked,
+    // tls_acme больше не отправляем из UI — поле в БД остаётся для совместимости,
+    // но сервер игнорирует его (см. бэкенд: tls_acme всегда False).
+    transport: document.getElementById('f-transport').value,
+    transport_config: tcfg,
+    probe_resistance_secret: document.getElementById('f-probe').value.trim() || null,
+  };
+
+  // Блокируем кнопку сохранения на время запроса
+  const btn = document.querySelector('#modal-create .btn-primary');
+  const origText = btn ? btn.textContent : '';
+  if (btn) { btn.disabled = true; btn.textContent = 'Сохраняем…'; }
+
+  try {
+    let r;
+    if (editId) {
+      r = await api('PUT', `/api/inbounds/${editId}`, body);
+      toast('Inbound обновлён');
+    } else {
+      r = await api('POST', '/api/inbounds/', body);
+      toast('Inbound создан');
+    }
+    closeModal('modal-create');
+    resetForm();
+    load();
+    pollApplyStatus(r.apply_id);
+  } catch(e) {
+    toast(e.message, 'error');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = origText; }
+  }
+}
+
+async function toggleInbound(id) {
+  try {
+    const r = await api('POST', `/api/inbounds/${id}/toggle`);
+    toast(r.enabled ? 'Включён' : 'Выключен');
+    load();
+    pollApplyStatus(r.apply_id);
+  } catch(e) { toast(e.message,'error'); }
+}
+
+async function deleteInbound(id) {
+  const ib = inbounds.find(i=>i.id===id);
+  document.getElementById('modal-delete-inbound-text').textContent =
+    `Удалить inbound "${ib?.tag}"? Все клиенты этого inbound'а тоже будут удалены. Это действие нельзя отменить.`;
+  openModal('modal-delete-inbound');
+  document.getElementById('modal-delete-inbound-confirm').onclick = async () => {
+    closeModal('modal-delete-inbound');
+    const btn = document.getElementById('modal-delete-inbound-confirm');
+    if (btn) btn.disabled = true;
+    try {
+      const r = await api('DELETE', `/api/inbounds/${id}`);
+      toast('Удалено');
+      load();
+      pollApplyStatus(r.apply_id);
+    } catch(e) {
+      toast(e.message, 'error');
+      load();
+    } finally {
+      if (btn) btn.disabled = false;
+    }
+  };
+}
+
+document.getElementById('modal-create').addEventListener('click', e => {
+  if (e.target === e.currentTarget) { closeModal('modal-create'); resetForm(); }
+});
+
+// ─────────────────────────────────────────────────
+// Firewall (UFW) hint: показывает под полем «Порт»,
+// открыт ли выбранный порт в системном файрволе. Данные
+// кэшируются на стороне сервера на 10 сек, плюс мы дёргаем
+// /api/system/firewall один раз на загрузку страницы.
+//
+// Хранится в window.firewallData; updateFirewallHint() работает
+// синхронно с тем что лежит в кэше — не делает доп. запросов на
+// каждое нажатие клавиши.
+// ─────────────────────────────────────────────────
+window.firewallData = null;
+
+async function loadFirewallStatus() {
+  try {
+    const r = await fetch('/api/system/firewall');
+    if (r.ok) {
+      window.firewallData = await r.json();
+    }
+  } catch (e) {
+    // Сетевая ошибка — оставляем null, updateFirewallHint скроет блок.
+    console.warn('firewall status fetch failed:', e);
+  }
+  updateFirewallHint();
+}
+
+function updateFirewallHint() {
+  const hintEl = document.getElementById('firewall-hint');
+  if (!hintEl) return;
+  // Naive рулится Caddy на 443 — отдельный порт у юзера не выбирается,
+  // индикатор не показываем.
+  const engine = document.getElementById('f-engine').value;
+  if (engine !== 'xray') {
+    hintEl.style.display = 'none';
+    return;
+  }
+  const portRaw = document.getElementById('f-port').value;
+  const port = parseInt(portRaw, 10);
+  if (!port || port < 1 || port > 65535) {
+    hintEl.style.display = 'none';
+    return;
+  }
+  const data = window.firewallData;
+  if (!data) {
+    hintEl.style.display = 'block';
+    hintEl.style.color = 'var(--text-dim)';
+    hintEl.innerHTML = '⌛ Состояние UFW загружается...';
+    return;
+  }
+  if (!data.available) {
+    const reason = data.reason || 'unknown';
+    let msg = 'Не удалось проверить UFW.';
+    if (reason === 'binary_not_found') msg = 'UFW не установлен на сервере — все порты открыты на уровне ОС. Проверьте облачный firewall провайдера если есть.';
+    else if (reason === 'sudo_failed') msg = 'Нет прав на проверку UFW. Перезапустите <code>bash update.sh panel</code> чтобы подложить sudoers.';
+    hintEl.style.display = 'block';
+    hintEl.style.color = 'var(--text-dim)';
+    hintEl.innerHTML = `⚪ ${msg}`;
+    return;
+  }
+  if (!data.active) {
+    hintEl.style.display = 'block';
+    hintEl.style.color = 'var(--text-dim)';
+    hintEl.innerHTML = '⚪ UFW неактивен — все порты открыты на уровне сервера. Если есть облачный firewall провайдера, проверьте его отдельно.';
+    return;
+  }
+  // UFW активен — ищем правило для этого порта
+  const rules = data.allowed_ports || [];
+  let allowed = false;
+  let matchedRule = null;
+  for (const r of rules) {
+    if (r.action !== 'ALLOW') continue;
+    if (r.proto !== null && r.proto !== 'tcp') continue;
+    const p = r.port || '';
+    if (p.includes(':')) {
+      const [lo, hi] = p.split(':').map(s => parseInt(s, 10));
+      if (port >= lo && port <= hi) { allowed = true; matchedRule = r; break; }
+    } else {
+      if (parseInt(p, 10) === port) { allowed = true; matchedRule = r; break; }
+    }
+  }
+  // default-policy = allow → принимаем любой порт
+  if (!allowed && data.default_in === 'allow') {
+    allowed = true;
+  }
+  hintEl.style.display = 'block';
+  if (allowed) {
+    hintEl.style.color = 'var(--success, #10b981)';
+    const detail = matchedRule
+      ? ` (правило: ${matchedRule.port}${matchedRule.proto ? '/'+matchedRule.proto : ''} ${matchedRule.action} from ${matchedRule.source})`
+      : ' (default-policy = allow)';
+    hintEl.innerHTML = `✅ Порт ${port}/tcp открыт в UFW${detail}.`;
+  } else {
+    hintEl.style.color = 'var(--warn, #f59e0b)';
+    hintEl.innerHTML =
+      `⚠️ Порт ${port}/tcp <strong>не открыт</strong> в UFW. ` +
+      `Клиенты получат timeout. Откройте на сервере:<br>` +
+      `<code style="user-select:all;background:var(--bg-dark);padding:2px 6px;border-radius:3px">sudo ufw allow ${port}/tcp</code>`;
+  }
+}
+
+// Перевешиваем onEngineChange чтобы хинт прятался при переключении на naive.
+const _origOnEngineChange = onEngineChange;
+onEngineChange = function() {
+  _origOnEngineChange();
+  updateFirewallHint();
+};
+
+// Перевешиваем openModal чтобы при открытии модалки сразу обновить
+// хинт по уже загруженным данным (или показать "загрузка...").
+const _origOpenModal = openModal;
+openModal = function(id) {
+  _origOpenModal(id);
+  if (id === 'modal-create') {
+    updateFirewallHint();
+    // Если данные ещё не загрузились (открыли модалку до окончания
+    // первого fetch'а) — догрузим и обновим.
+    if (window.firewallData === null) {
+      loadFirewallStatus();
+    }
+  }
+};
+
+// ── Экспорт / импорт резервной копии (inbounds + клиенты) ──
+function exportBackup() {
+  // GET с cookie-авторизацией; ответ отдаётся как attachment.
+  const a = document.createElement('a');
+  a.href = '/api/backup/export';
+  a.download = '';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+}
+
+async function importBackup(input) {
+  const file = input.files && input.files[0];
+  input.value = '';            // позволяем выбрать тот же файл повторно
+  if (!file) return;
+  let parsed;
+  try {
+    parsed = JSON.parse(await file.text());
+  } catch (e) {
+    toast('Не удалось прочитать JSON: ' + e.message, 'error');
+    return;
+  }
+  const replace = confirm(
+    'Импортировать inbounds из файла.\n\n' +
+    'OK — заменить inbounds с совпадающим tag (mode=replace).\n' +
+    'Отмена — пропустить уже существующие (mode=skip).'
+  );
+  try {
+    const res = await api('POST', '/api/backup/import', {
+      mode: replace ? 'replace' : 'skip',
+      data: parsed,
+    });
+    let msg = `Импорт: inbounds +${res.created_inbounds}` +
+              (res.skipped_inbounds ? ` (пропущено ${res.skipped_inbounds})` : '') +
+              `, клиентов +${res.created_clients}` +
+              (res.skipped_clients ? ` (пропущено ${res.skipped_clients})` : '');
+    toast(msg, (res.errors && res.errors.length) ? 'error' : 'success');
+    if (res.errors && res.errors.length) {
+      console.warn('Импорт — предупреждения:', res.errors);
+    }
+    load();
+  } catch (e) {
+    toast('Импорт не удался: ' + e.message, 'error');
+  }
+}
+
+// Init
+load();
+// Грузим состояние UFW в фоне — данные нужны при открытии модалки.
+loadFirewallStatus();
+</script>
+{% endblock %}

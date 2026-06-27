@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Вход — ProxyPanel</title>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500&family=Unbounded:wght@800&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #0a0c10; --surface: #111318; --border: #1e2330;
+      --accent: #00e5a0; --text: #c8d0e0; --text-dim: #5a6580;
+      --danger: #ff3b5c; --mono: 'JetBrains Mono',monospace;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: var(--bg); color: var(--text);
+      font-family: var(--mono); font-size: 13px;
+      min-height: 100vh; display: flex;
+      align-items: center; justify-content: center;
+    }
+
+    /* Grid noise background */
+    body::before {
+      content: ''; position: fixed; inset: 0;
+      background-image:
+        linear-gradient(rgba(16, 185, 129,.03) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(16, 185, 129,.03) 1px, transparent 1px);
+      background-size: 40px 40px;
+      pointer-events: none;
+    }
+
+    .login-box {
+      width: 360px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 40px 36px;
+      position: relative;
+    }
+
+    .login-box::before {
+      content: '';
+      position: absolute;
+      top: -1px; left: 20%; right: 20%;
+      height: 1px;
+      background: linear-gradient(90deg, transparent, var(--accent), transparent);
+    }
+
+    .logo {
+      font-family: 'Unbounded', sans-serif;
+      font-size: 20px;
+      font-weight: 800;
+      color: var(--accent);
+      letter-spacing: -1px;
+      margin-bottom: 4px;
+    }
+    .logo-sub {
+      font-size: 10px;
+      color: var(--text-dim);
+      letter-spacing: 1.5px;
+      text-transform: uppercase;
+      margin-bottom: 32px;
+    }
+
+    .form-group { margin-bottom: 16px; }
+    .form-label {
+      display: block;
+      font-size: 10px;
+      color: var(--text-dim);
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      margin-bottom: 6px;
+    }
+    .form-control {
+      width: 100%;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text);
+      font-family: var(--mono);
+      font-size: 13px;
+      padding: 9px 12px;
+      outline: none;
+      transition: border-color .15s;
+    }
+    .form-control:focus { border-color: var(--accent); }
+
+    .btn-login {
+      width: 100%;
+      background: var(--accent);
+      color: #000;
+      border: none;
+      border-radius: 6px;
+      padding: 10px;
+      font-family: var(--mono);
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: background .15s;
+      margin-top: 8px;
+    }
+    .btn-login:hover { background: #00c98a; }
+
+    .alert {
+      background: rgba(239, 68, 68,.1);
+      border: 1px solid rgba(239, 68, 68,.3);
+      color: var(--danger);
+      border-radius: 6px;
+      padding: 8px 12px;
+      font-size: 12px;
+      margin-bottom: 16px;
+    }
+  </style>
+</head>
+<body>
+  <div class="login-box">
+    <div class="logo">ProxyPanel</div>
+    <div class="logo-sub">управление прокси-сервером</div>
+
+    {% with msgs = get_flashed_messages(with_categories=true) %}
+      {% for cat, msg in msgs %}
+        <div class="alert">{{ msg }}</div>
+      {% endfor %}
+    {% endwith %}
+
+    <div id="login-err" class="alert" style="display:none"></div>
+
+    <form method="post" action="/auth/login" id="login-form">
+      <div class="form-group">
+        <label class="form-label">Логин</label>
+        <input type="text" class="form-control" name="username" id="lf-username" autofocus autocomplete="username">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Пароль</label>
+        <input type="password" class="form-control" name="password" id="lf-password" autocomplete="current-password">
+      </div>
+      <div class="form-group" id="lf-code-group" style="display:none">
+        <label class="form-label">Код 2FA</label>
+        <input type="text" class="form-control" name="code" id="lf-code" inputmode="numeric" autocomplete="one-time-code" placeholder="000000 или резервный код">
+      </div>
+      <button type="submit" class="btn-login">Войти →</button>
+    </form>
+  </div>
+
+  <script>
+    const form = document.getElementById('login-form');
+    const errBox = document.getElementById('login-err');
+    function showErr(msg) { errBox.textContent = msg; errBox.style.display = 'block'; }
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      errBox.style.display = 'none';
+      const body = {
+        username: document.getElementById('lf-username').value.trim(),
+        password: document.getElementById('lf-password').value,
+        code: document.getElementById('lf-code').value.trim(),
+      };
+      try {
+        const r = await fetch('/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        const data = await r.json().catch(() => ({}));
+        if (r.ok && data.ok) { window.location = '/dashboard'; return; }
+        if (data.twofa_required) {
+          document.getElementById('lf-code-group').style.display = 'block';
+          document.getElementById('lf-code').focus();
+          showErr(body.code ? 'Неверный код. Попробуйте ещё раз.' : 'Введите код двухфакторной аутентификации.');
+          return;
+        }
+        showErr(data.error || 'Ошибка входа');
+      } catch (err) {
+        // Если что-то с сетью/JS — отправляем обычной формой (fallback).
+        form.submit();
+      }
+    });
+  </script>
+</body>
+</html>

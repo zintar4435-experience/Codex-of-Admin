@@ -1,0 +1,627 @@
+{% extends "base.html" %}
+{% block title %}Маршрутизация — ProxyPanel{% endblock %}
+{% block page_title %}Каскад & Маршрутизация{% endblock %}
+{% block content %}
+
+<style>
+  /* Уровень 1: кликабельные подсказки + чипы протоколов. Чисто косметика,
+     никакого нового поведения — просто удобство ввода. */
+  .hint-code {
+    cursor: pointer;
+    transition: background .15s, color .15s;
+    padding: 1px 4px;
+    border-radius: 3px;
+  }
+  .hint-code:hover {
+    background: var(--surface2);
+    color: var(--text) !important;
+  }
+  .proto-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 6px;
+  }
+  .proto-chip {
+    cursor: pointer;
+    user-select: none;
+    padding: 3px 10px;
+    border-radius: 14px;
+    font-size: 11px;
+    border: 1px solid var(--border);
+    background: var(--surface2);
+    color: var(--text-dim);
+    transition: all .15s;
+  }
+  .proto-chip:hover {
+    border-color: var(--accent);
+    color: var(--text);
+  }
+  .proto-chip.active {
+    background: var(--accent);
+    color: #fff;
+    border-color: var(--accent);
+  }
+
+  /* Радио-группа для transport/network (TCP/UDP/Both) */
+  .net-radio-group {
+    display: flex;
+    gap: 14px;
+    align-items: center;
+  }
+  .net-radio {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
+    font-size: 13px;
+    color: var(--text);
+    padding: 5px 10px;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    background: var(--surface2);
+    transition: border-color .15s, color .15s;
+  }
+  .net-radio:hover { border-color: var(--accent); }
+  .net-radio input { margin: 0; accent-color: var(--accent); }
+</style>
+
+<div style="display:grid;grid-template-columns:1fr 320px;gap:20px;align-items:start">
+
+  <!-- Rules table -->
+  <div>
+    <div class="flex justify-between items-center" style="margin-bottom:16px">
+      <div class="text-dim" id="rules-count"></div>
+      <button class="btn btn-primary" onclick="openCreateModal()">
+        <i class="bi bi-plus-lg"></i> Новое правило
+      </button>
+    </div>
+    <div class="card" id="rules-card">
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th style="width:40px">★</th>
+              <th>Название</th>
+              <th>Источник</th>
+              <th>Условие</th>
+              <th>Действие</th>
+              <th>Цель</th>
+              <th>Статус</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="rules-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Empty state для правил -->
+    <div id="rules-empty" class="card empty-state hidden">
+      <div class="empty-icon"><i class="bi bi-diagram-3"></i></div>
+      <div class="empty-title">Правил пока нет</div>
+      <div class="empty-desc">
+        Без правил весь трафик идёт напрямую через основной outbound.
+        Правила позволяют отправлять часть трафика мимо прокси (например,
+        российские домены — напрямую) или блокировать его.
+      </div>
+      <div class="empty-actions">
+        <button class="btn btn-primary" onclick="openCreateModal()">
+          <i class="bi bi-plus-lg"></i> Создать первое правило
+        </button>
+      </div>
+    </div>
+
+    <!-- External outbounds -->
+    <div class="card">
+      <div class="card-header">
+        <span class="card-title">Внешние прокси (SOCKS5/HTTP)</span>
+        <button class="btn btn-outline btn-sm" onclick="openOutboundModal()">
+          <i class="bi bi-plus-lg"></i> Добавить
+        </button>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Тег</th><th>Протокол</th><th>Адрес</th><th>Порт</th><th></th></tr></thead>
+          <tbody id="outbounds-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- Cascade diagram -->
+  <div>
+    <div class="card">
+      <div class="card-header">
+        <span class="card-title">Схема каскада</span>
+      </div>
+      <div id="cascade-diagram" style="font-size:12px;line-height:1.8"></div>
+    </div>
+    <div class="card" style="margin-top:0">
+      <div class="card-header">
+        <span class="card-title">Справка по условиям</span>
+      </div>
+      <div style="font-size:10px;color:var(--text-dim);padding:0 12px 4px;font-style:italic">
+        Клик по коду — вставит в нужное поле формы.
+      </div>
+      <div style="font-size:11px;color:var(--text-dim);line-height:1.8">
+        <div><code class="hint-code" style="color:var(--accent)" onclick="insertHint('domains','geosite:geolocation-ru')">geosite:geolocation-ru</code> — российские домены</div>
+        <div><code class="hint-code" style="color:var(--accent)" onclick="insertHint('domains','geosite:category-ads')">geosite:category-ads</code> — реклама</div>
+        <div><code class="hint-code" style="color:var(--accent)" onclick="insertHint('ips','geoip:ru')">geoip:ru</code> — российские IP</div>
+        <div><code class="hint-code" style="color:var(--accent)" onclick="insertHint('ips','geoip:private')">geoip:private</code> — локальная сеть</div>
+        <div><code class="hint-code" style="color:var(--accent)" onclick="insertHint('domains','domain:vk.com')">domain:vk.com</code> — конкретный домен</div>
+        <div><code class="hint-code" style="color:var(--accent)" onclick="insertHint('domains','regexp:\\.ru$')">regexp:\.ru$</code> — регулярка</div>
+        <div style="margin-top:8px;color:var(--text)">Порты: <code class="hint-code" onclick="insertHint('ports','80,443')">80,443</code> или <code class="hint-code" onclick="insertHint('ports','8000-9000')">8000-9000</code></div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- Rule modal -->
+<div class="modal-backdrop" id="modal-rule">
+  <div class="modal-box" style="width:580px">
+    <div class="modal-title" id="rule-modal-title">Новое правило</div>
+
+    <div style="display:grid;grid-template-columns:2fr 1fr;gap:12px">
+      <div class="form-group">
+        <label class="form-label">Название</label>
+        <input type="text" class="form-control" id="r-name" placeholder="Bypass Russia">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Приоритет (меньше = выше)</label>
+        <input type="number" class="form-control" id="r-priority" value="100">
+      </div>
+    </div>
+
+    <div class="form-group">
+      <label class="form-label">Источник (inbound, пусто = все)</label>
+      <select class="form-control" id="r-src">
+        <option value="">— все inbounds —</option>
+      </select>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+      <div class="form-group">
+        <label class="form-label">Домены (через запятую)</label>
+        <textarea class="form-control" id="r-domains" rows="3"
+          placeholder="geosite:geolocation-ru, domain:vk.com"></textarea>
+      </div>
+      <div class="form-group">
+        <label class="form-label">IP / CIDR</label>
+        <textarea class="form-control" id="r-ips" rows="3"
+          placeholder="geoip:ru, 10.0.0.0/8"></textarea>
+      </div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+      <div class="form-group">
+        <label class="form-label">Протоколы</label>
+        <div class="proto-chips" id="proto-chips">
+          <span class="proto-chip" data-value="http"       onclick="toggleProtoChip('http')">http</span>
+          <span class="proto-chip" data-value="tls"        onclick="toggleProtoChip('tls')">tls</span>
+          <span class="proto-chip" data-value="bittorrent" onclick="toggleProtoChip('bittorrent')">bittorrent</span>
+          <span class="proto-chip" data-value="quic"       onclick="toggleProtoChip('quic')">quic</span>
+        </div>
+        <input type="text" class="form-control" id="r-protocols" placeholder="http, tls" oninput="syncProtoChips()">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Порты</label>
+        <input type="text" class="form-control" id="r-ports" placeholder="80,443,8000-9000">
+      </div>
+    </div>
+
+    <div class="form-group">
+      <label class="form-label">Транспорт (network)</label>
+      <div class="net-radio-group" id="r-network-group">
+        <label class="net-radio">
+          <input type="radio" name="r-network" value="" checked> <span>Оба</span>
+        </label>
+        <label class="net-radio">
+          <input type="radio" name="r-network" value="tcp"> <span>Только TCP</span>
+        </label>
+        <label class="net-radio">
+          <input type="radio" name="r-network" value="udp"> <span>Только UDP</span>
+        </label>
+      </div>
+      <div style="font-size:11px;color:var(--text-dim);margin-top:4px">
+        «Оба» — без фильтра (по умолчанию). TCP-only полезно для VLESS/Trojan, UDP-only — для блокировки DNS-rebinding / QUIC.
+      </div>
+    </div>
+
+    <div class="form-group">
+      <label class="form-label">Действие</label>
+      <select class="form-control" id="r-action" onchange="onActionChange()">
+        <option value="direct">direct — напрямую</option>
+        <option value="block">block — заблокировать</option>
+        <option value="inbound">inbound — каскад через другой inbound</option>
+        <option value="outbound">outbound — внешний прокси</option>
+      </select>
+    </div>
+
+    <div class="form-group hidden" id="r-dst-inbound-group">
+      <label class="form-label">Целевой Inbound (каскад)</label>
+      <select class="form-control" id="r-dst-inbound"></select>
+    </div>
+    <div class="form-group hidden" id="r-dst-outbound-group">
+      <label class="form-label">Внешний прокси (тег)</label>
+      <select class="form-control" id="r-dst-outbound"></select>
+    </div>
+
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal('modal-rule');resetRuleForm()">Отмена</button>
+      <button class="btn btn-primary" onclick="saveRule()">Сохранить</button>
+    </div>
+  </div>
+</div>
+
+<!-- Outbound modal -->
+<div class="modal-backdrop" id="modal-outbound">
+  <div class="modal-box">
+    <div class="modal-title">Внешний прокси</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+      <div class="form-group">
+        <label class="form-label">Тег</label>
+        <input type="text" class="form-control" id="o-tag" placeholder="upstream-socks">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Протокол</label>
+        <select class="form-control" id="o-proto">
+          <option value="socks">SOCKS5</option>
+          <option value="http">HTTP</option>
+        </select>
+      </div>
+    </div>
+    <div style="display:grid;grid-template-columns:2fr 1fr;gap:12px">
+      <div class="form-group">
+        <label class="form-label">Адрес</label>
+        <input type="text" class="form-control" id="o-addr" placeholder="1.2.3.4">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Порт</label>
+        <input type="number" class="form-control" id="o-port" placeholder="1080">
+      </div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+      <div class="form-group">
+        <label class="form-label">Логин</label>
+        <input type="text" class="form-control" id="o-user">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Пароль</label>
+        <input type="text" class="form-control" id="o-pass">
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal('modal-outbound')">Отмена</button>
+      <button class="btn btn-primary" onclick="saveOutbound()">Сохранить</button>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+{% block scripts %}
+<script>
+let rules = [], inbounds = [], outbounds = [];
+let editRuleId = null;
+
+async function load() {
+  [rules, inbounds, outbounds] = await Promise.all([
+    api('GET','/api/routing/'),
+    api('GET','/api/inbounds/'),
+    api('GET','/api/outbounds/'),
+  ]);
+  renderRules();
+  renderOutbounds();
+  renderCascadeDiagram();
+  populateSelects();
+}
+
+function populateSelects() {
+  const srcSel = document.getElementById('r-src');
+  srcSel.innerHTML = '<option value="">— все inbounds —</option>' +
+    inbounds.map(ib=>`<option value="${ib.id}">${ib.tag} (${ib.protocol})</option>`).join('');
+
+  // Каскад между inbound'ами поддерживается только если dst — SOCKS5 или HTTP.
+  // Для других протоколов нужен protocol-aware outbound (см. CASCADE_COMPATIBLE_PROTOCOLS
+  // в api/routing.py). Здесь фильтруем select, чтобы пользователь не мог выбрать
+  // несовместимое и получить 400 при сохранении.
+  const CASCADE_COMPATIBLE = ['socks', 'http'];
+  const dstCandidates = inbounds.filter(ib => CASCADE_COMPATIBLE.includes(ib.protocol));
+  const dstSel = document.getElementById('r-dst-inbound');
+  if (dstCandidates.length === 0) {
+    dstSel.innerHTML = '<option value="" disabled>Нет совместимых inbound (нужен SOCKS5 или HTTP)</option>';
+  } else {
+    dstSel.innerHTML = dstCandidates.map(ib =>
+      `<option value="${ib.id}">${ib.tag} (${ib.engine}/${ib.protocol})</option>`
+    ).join('');
+  }
+
+  const outSel = document.getElementById('r-dst-outbound');
+  outSel.innerHTML = outbounds.map(o=>`<option value="${o.tag}">${o.tag} (${o.protocol})</option>`).join('');
+}
+
+function renderRules() {
+  document.getElementById('rules-count').textContent = `${rules.length} правил`;
+  const tb    = document.getElementById('rules-tbody');
+  const card  = document.getElementById('rules-card');
+  const empty = document.getElementById('rules-empty');
+  if (!rules.length) {
+    card.classList.add('hidden');
+    empty.classList.remove('hidden');
+    return;
+  }
+  card.classList.remove('hidden');
+  empty.classList.add('hidden');
+  tb.innerHTML = rules.map(r => {
+    const srcIb = inbounds.find(i=>i.id===r.src_inbound_id);
+    const srcStr = srcIb ? `<code>${srcIb.tag}</code>` : '<span class="text-dim">все</span>';
+    const netBadge = r.match_network
+      ? ` <span class="badge badge-info" title="Транспорт">${r.match_network.toUpperCase()}</span>`
+      : '';
+    // Бейдж невалидности: правило с битыми geosite:/geoip:-кодами в
+    // конфиг Xray не попадёт (его пропускает _build_routing_rules с
+    // warning'ом). Юзеру нужно увидеть, какое именно и какие коды
+    // починить. validation_warnings — массив исходных строк-кодов;
+    // старые версии API его не возвращают (тогда поле undefined и
+    // бейдж не рисуется).
+    const warnings = Array.isArray(r.validation_warnings) ? r.validation_warnings : [];
+    const warnBadge = warnings.length
+      ? ` <span class="badge badge-warn" title="Правило не действует: коды ${warnings.join(', ')} не найдены в установленной geosite.dat/geoip.dat. Откройте правило и поправьте.">⚠ битый код</span>`
+      : '';
+    const conditions = ([
+      ...(r.match_domains||[]).slice(0,2),
+      ...(r.match_ips||[]).slice(0,1),
+    ].join(', ') || '<span class="text-dim">любой</span>') + netBadge;
+    const actionColors = {direct:'badge-active', block:'badge-danger', inbound:'badge-info', outbound:'badge-warn'};
+    const dstIb = inbounds.find(i=>i.id===r.dst_inbound_id);
+    const dst = r.action==='inbound' && dstIb ? `<code>${dstIb.tag}</code>` :
+                r.action==='outbound' ? `<code>${r.dst_outbound_tag}</code>` : '—';
+    return `<tr>
+      <td style="color:var(--text-dim);font-size:11px">${r.priority}</td>
+      <td>${r.name}${warnBadge}</td>
+      <td>${srcStr}</td>
+      <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px">${conditions}</td>
+      <td><span class="badge ${actionColors[r.action]||'badge-inactive'}">${r.action}</span></td>
+      <td>${dst}</td>
+      <td><span class="badge ${r.enabled?'badge-active':'badge-inactive'}">${r.enabled?'on':'off'}</span></td>
+      <td>
+        <div class="flex gap-2">
+          <button class="btn btn-outline btn-sm btn-icon" onclick="editRule(${r.id})"><i class="bi bi-pencil"></i></button>
+          <button class="btn btn-danger btn-sm btn-icon" onclick="deleteRule(${r.id})"><i class="bi bi-trash"></i></button>
+        </div>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+function renderOutbounds() {
+  const tb = document.getElementById('outbounds-tbody');
+  if (!outbounds.length) {
+    tb.innerHTML = '<tr><td colspan="5" class="text-dim" style="text-align:center;padding:16px">Нет внешних прокси</td></tr>';
+    return;
+  }
+  tb.innerHTML = outbounds.map(o=>`<tr>
+    <td><code>${o.tag}</code></td>
+    <td><span class="badge badge-info">${o.protocol.toUpperCase()}</span></td>
+    <td>${o.address}</td>
+    <td>${o.port}</td>
+    <td>
+      <button class="btn btn-danger btn-sm btn-icon" onclick="deleteOutbound(${o.id})"><i class="bi bi-trash"></i></button>
+    </td>
+  </tr>`).join('');
+}
+
+function renderCascadeDiagram() {
+  const cascadeRules = rules.filter(r=>r.action==='inbound' && r.dst_inbound_id);
+  const d = document.getElementById('cascade-diagram');
+  if (!cascadeRules.length) {
+    d.innerHTML = '<div class="text-dim" style="text-align:center;padding:20px;font-size:11px">Нет каскадных правил</div>';
+    return;
+  }
+  d.innerHTML = cascadeRules.map(r => {
+    const src = inbounds.find(i=>i.id===r.src_inbound_id);
+    const dst = inbounds.find(i=>i.id===r.dst_inbound_id);
+    return `<div style="margin-bottom:12px;padding:10px;background:var(--surface2);border-radius:var(--radius);border:1px solid var(--border)">
+      <div style="font-size:10px;color:var(--text-dim);margin-bottom:6px">${r.name}</div>
+      <div class="flex items-center gap-2">
+        ${src ? `<span class="proto proto-${src.protocol}">${src.tag}</span>` : '<span class="badge badge-info">все</span>'}
+        <span style="color:var(--accent)">→</span>
+        ${dst ? `<span class="proto proto-${dst.protocol}">${dst.tag}</span>` : '?'}
+        <span style="color:var(--accent)">→</span>
+        <span class="badge badge-active">internet</span>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function onActionChange() {
+  const a = document.getElementById('r-action').value;
+  document.getElementById('r-dst-inbound-group').classList.toggle('hidden', a !== 'inbound');
+  document.getElementById('r-dst-outbound-group').classList.toggle('hidden', a !== 'outbound');
+}
+
+function openCreateModal() { resetRuleForm(); openModal('modal-rule'); }
+
+function editRule(id) {
+  const r = rules.find(x=>x.id===id);
+  if (!r) return;
+  editRuleId = id;
+  document.getElementById('rule-modal-title').textContent = 'Редактировать правило';
+  document.getElementById('r-name').value = r.name;
+  document.getElementById('r-priority').value = r.priority;
+  document.getElementById('r-src').value = r.src_inbound_id || '';
+  document.getElementById('r-domains').value = (r.match_domains||[]).join(', ');
+  document.getElementById('r-ips').value = (r.match_ips||[]).join(', ');
+  document.getElementById('r-protocols').value = (r.match_protocols||[]).join(', ');
+  document.getElementById('r-ports').value = r.match_ports || '';
+  document.getElementById('r-action').value = r.action;
+  document.getElementById('r-dst-inbound').value = r.dst_inbound_id || '';
+  document.getElementById('r-dst-outbound').value = r.dst_outbound_tag || '';
+  setNetworkRadio(r.match_network);
+  onActionChange();
+  syncProtoChips();
+  openModal('modal-rule');
+}
+
+function resetRuleForm() {
+  editRuleId = null;
+  document.getElementById('rule-modal-title').textContent = 'Новое правило';
+  ['r-name','r-domains','r-ips','r-protocols','r-ports'].forEach(id=>document.getElementById(id).value='');
+  document.getElementById('r-priority').value = 100;
+  document.getElementById('r-src').value = '';
+  document.getElementById('r-action').value = 'direct';
+  setNetworkRadio(null);
+  onActionChange();
+  syncProtoChips();
+}
+
+// Расставляет radio-кнопку в группе r-network в соответствии с значением.
+// Принимает: null / undefined / "" → выбирает "Оба"; "tcp" / "udp" → соотв.
+// Если значение неизвестное (вдруг бэкенд вернул мусор), тоже выбирает "Оба".
+function setNetworkRadio(value) {
+  const v = (value === "tcp" || value === "udp") ? value : "";
+  const target = document.querySelector(`input[name="r-network"][value="${v}"]`);
+  if (target) target.checked = true;
+}
+
+function parseCsv(s) { return s.split(',').map(x=>x.trim()).filter(Boolean); }
+
+// ─────────────────────────────────────────────────────────────
+// Уровень 1: кликабельные подсказки + чипы протоколов.
+// Чисто UX-удобства, никакого нового бэкенда — всё работает через
+// те же поля #r-domains / #r-ips / #r-protocols / #r-ports.
+// ─────────────────────────────────────────────────────────────
+
+// Маппинг "категория подсказки" → id поля формы
+const HINT_FIELDS = {
+  domains: 'r-domains',
+  ips:     'r-ips',
+  ports:   'r-ports',
+};
+
+// Клик по коду в правой колонке: открывает модалку (если закрыта),
+// добавляет значение в указанное поле, если его там ещё нет.
+function insertHint(category, value) {
+  const fieldId = HINT_FIELDS[category];
+  if (!fieldId) return;
+
+  // Если модалка ещё не открыта — открываем в режиме создания
+  const modal = document.getElementById('modal-rule');
+  const isOpen = modal && modal.classList.contains('open');
+  if (!isOpen) {
+    openCreateModal();
+  }
+
+  const el = document.getElementById(fieldId);
+  if (!el) return;
+
+  const existing = parseCsv(el.value);
+  if (existing.includes(value)) {
+    // Уже есть — мигнём, чтобы юзер понял, что нажал
+    el.style.transition = 'background .3s';
+    const orig = el.style.background;
+    el.style.background = 'var(--surface2)';
+    setTimeout(()=>{ el.style.background = orig; }, 300);
+    return;
+  }
+  existing.push(value);
+  el.value = existing.join(', ');
+  // Если поле — порты, оно одиночное; для CSV-полей фокус и подсветка лишние
+  if (category !== 'ports') {
+    el.focus();
+    el.setSelectionRange(el.value.length, el.value.length);
+  }
+}
+
+// Чипы протоколов — двунаправленная синхронизация с input#r-protocols.
+// Источник истины — input (его читает saveRule). Чипы лишь отображают
+// его состояние и удобно дёргают.
+function toggleProtoChip(value) {
+  const el = document.getElementById('r-protocols');
+  if (!el) return;
+  const existing = parseCsv(el.value);
+  const idx = existing.indexOf(value);
+  if (idx >= 0) existing.splice(idx, 1);
+  else existing.push(value);
+  el.value = existing.join(', ');
+  syncProtoChips();
+}
+
+// Прочитать input#r-protocols и расставить active-классы на чипах.
+// Вызывается:
+//   - на oninput от пользователя (когда он печатает в инпут руками),
+//   - после toggleProtoChip,
+//   - после editRule() и resetRuleForm().
+function syncProtoChips() {
+  const el = document.getElementById('r-protocols');
+  if (!el) return;
+  const active = new Set(parseCsv(el.value));
+  document.querySelectorAll('#proto-chips .proto-chip').forEach(chip => {
+    if (active.has(chip.dataset.value)) chip.classList.add('active');
+    else chip.classList.remove('active');
+  });
+}
+
+async function saveRule() {
+  // Читаем выбранный radio в группе r-network. Если ни один не выбран
+  // (что не должно случаться — есть default "checked"), отправим "" → бэкенд
+  // нормализует в NULL ("оба").
+  const netRadio = document.querySelector('input[name="r-network"]:checked');
+  const matchNetwork = netRadio ? netRadio.value : "";
+
+  const body = {
+    name: document.getElementById('r-name').value.trim(),
+    priority: parseInt(document.getElementById('r-priority').value)||100,
+    src_inbound_id: parseInt(document.getElementById('r-src').value)||null,
+    match_domains: parseCsv(document.getElementById('r-domains').value),
+    match_ips: parseCsv(document.getElementById('r-ips').value),
+    match_protocols: parseCsv(document.getElementById('r-protocols').value),
+    match_ports: document.getElementById('r-ports').value.trim()||null,
+    match_network: matchNetwork,
+    action: document.getElementById('r-action').value,
+    dst_inbound_id: parseInt(document.getElementById('r-dst-inbound').value)||null,
+    dst_outbound_tag: document.getElementById('r-dst-outbound').value||null,
+  };
+  try {
+    if (editRuleId) { await api('PUT',`/api/routing/${editRuleId}`,body); toast('Правило обновлено'); }
+    else { await api('POST','/api/routing/',body); toast('Правило создано'); }
+    closeModal('modal-rule'); resetRuleForm(); load();
+  } catch(e) { toast(e.message,'error'); }
+}
+
+async function deleteRule(id) {
+  const r = rules.find(x=>x.id===id);
+  if (!confirm(`Удалить правило "${r?.name}"?`)) return;
+  try { await api('DELETE',`/api/routing/${id}`); toast('Удалено'); load(); }
+  catch(e) { toast(e.message,'error'); }
+}
+
+function openOutboundModal() { openModal('modal-outbound'); }
+
+async function saveOutbound() {
+  const body = {
+    tag: document.getElementById('o-tag').value.trim(),
+    protocol: document.getElementById('o-proto').value,
+    address: document.getElementById('o-addr').value.trim(),
+    port: parseInt(document.getElementById('o-port').value),
+    username: document.getElementById('o-user').value.trim()||null,
+    password: document.getElementById('o-pass').value.trim()||null,
+  };
+  try {
+    await api('POST','/api/outbounds/',body);
+    toast('Прокси добавлен');
+    closeModal('modal-outbound');
+    load();
+  } catch(e) { toast(e.message,'error'); }
+}
+
+async function deleteOutbound(id) {
+  if (!confirm('Удалить внешний прокси?')) return;
+  try { await api('DELETE',`/api/outbounds/${id}`); toast('Удалено'); load(); }
+  catch(e) { toast(e.message,'error'); }
+}
+
+load();
+</script>
+{% endblock %}
