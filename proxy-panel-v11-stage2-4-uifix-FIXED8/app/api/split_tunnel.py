@@ -7,6 +7,7 @@ from app.models import db, SplitTunnelList
 from app.core.xray import apply_xray_config
 from app.core.caddy import apply_caddy_config
 from app.core.audit import log_action
+from app.core.url_guard import validate_public_url
 
 bp = Blueprint("split_tunnel", __name__)
 
@@ -77,8 +78,11 @@ def refresh_list(lst_id):
     lst = SplitTunnelList.query.get_or_404(lst_id)
     if not lst.source_url:
         return jsonify({"error": "URL не указан"}), 400
-    if not lst.source_url.lower().startswith(("http://", "https://")):
-        return jsonify({"error": "URL должен начинаться с http:// или https://"}), 400
+    # SSRF-защита: разрешаем только публичные http(s)-адреса. Блокирует
+    # обращения к метаданным облака и внутренним сервисам (см. url_guard).
+    ok, err = validate_public_url(lst.source_url)
+    if not ok:
+        return jsonify({"error": err}), 400
     try:
         with urllib.request.urlopen(lst.source_url, timeout=30) as resp:
             lst.content = resp.read().decode("utf-8", errors="replace")

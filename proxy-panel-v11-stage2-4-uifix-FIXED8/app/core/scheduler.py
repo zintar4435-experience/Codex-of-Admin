@@ -193,6 +193,7 @@ def _update_split_tunnel_lists():
     """Fetch updated IP/domain lists from configured URLs."""
     import urllib.request
     from app.models import db, SplitTunnelList
+    from app.core.url_guard import validate_public_url
 
     app = _get_app()
     with app.app_context():
@@ -202,8 +203,11 @@ def _update_split_tunnel_lists():
         ).all()
 
         for lst in lists:
-            if not (lst.source_url or "").lower().startswith(("http://", "https://")):
-                log.warning("Пропущен split-tunnel список %r: URL не http(s)", lst.name)
+            # SSRF-защита: тот же фильтр, что и в ручном refresh — только
+            # публичные http(s)-адреса (без метаданных облака / localhost).
+            ok, err = validate_public_url(lst.source_url or "")
+            if not ok:
+                log.warning("Пропущен split-tunnel список %r: %s", lst.name, err)
                 continue
             try:
                 with urllib.request.urlopen(lst.source_url, timeout=30) as resp:
