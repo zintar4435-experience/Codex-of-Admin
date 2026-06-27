@@ -15,7 +15,7 @@
 
 <div class="flex justify-between items-center" style="margin-bottom:16px">
   <div class="text-dim" id="clients-summary"></div>
-  <button class="btn btn-primary" onclick="openModal('modal-client')">
+  <button class="btn btn-primary" onclick="newClient()">
     <i class="bi bi-plus-lg"></i> Добавить клиента
   </button>
 </div>
@@ -43,7 +43,7 @@
     действия можно настроить отдельно для каждого. Один человек = один клиент.
   </div>
   <div class="empty-actions">
-    <button class="btn btn-primary" onclick="openModal('modal-client')">
+    <button class="btn btn-primary" onclick="newClient()">
       <i class="bi bi-plus-lg"></i> Добавить клиента
     </button>
   </div>
@@ -65,7 +65,7 @@
       </div>
     </div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
-      <div class="form-group">
+      <div class="form-group" id="c-uuid-group">
         <label class="form-label">UUID (авто если пусто)</label>
         <input type="text" class="form-control" id="c-uuid" placeholder="авто">
       </div>
@@ -80,11 +80,11 @@
     </div>
     <div id="c-password-section">
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
-        <div class="form-group">
+        <div class="form-group" id="c-login-group">
           <label class="form-label">Логин (NaiveProxy / SOCKS)</label>
           <input type="text" class="form-control" id="c-username">
         </div>
-        <div class="form-group">
+        <div class="form-group" id="c-password-group">
           <label class="form-label">Пароль</label>
           <input type="text" class="form-control" id="c-password"
             placeholder="Оставьте пустым чтобы не менять">
@@ -342,6 +342,31 @@ function renderQR(elId, text, size) {
   });
 }
 
+// Какие поля клиента нужны для протокола инбаунда (защита от дурака).
+// Flow — только VLESS + TCP + TLS/Reality (vision требует raw TCP+TLS).
+function clientFieldVis(ib) {
+  const p = ib ? ib.protocol : 'vless';
+  const tr = ib ? (ib.transport || 'tcp') : 'tcp';
+  const tcfg = (ib && ib.transport_config) || {};
+  const secure = !!(ib && (ib.tls_enabled || tcfg.reality_public_key));
+  return {
+    uuid:     p === 'vless' || p === 'vmess',
+    flow:     p === 'vless' && tr === 'tcp' && secure,
+    login:    p === 'naive' || p === 'socks' || p === 'http',
+    password: p === 'trojan' || p === 'shadowsocks' || p === 'naive' || p === 'socks' || p === 'http',
+  };
+}
+function applyClientFieldVis() {
+  const v = clientFieldVis(inbound);
+  const set = (id, show) => { const e = document.getElementById(id); if (e) e.classList.toggle('hidden', !show); };
+  set('c-uuid-group', v.uuid);
+  set('c-flow-group', v.flow);
+  set('c-login-group', v.login);
+  set('c-password-group', v.password);
+  set('c-password-section', v.login || v.password);
+  window._clientFieldVis = v;
+}
+
 function resetClientForm() {
   ['c-name','c-email','c-uuid','c-username','c-password','c-days','c-limit-up','c-limit-down'].forEach(id=>{
     document.getElementById(id).value='';
@@ -351,6 +376,13 @@ function resetClientForm() {
   document.getElementById('c-password-hint').classList.add('hidden');
   editClientId=null;
   document.getElementById('modal-client-title').textContent='Новый клиент';
+}
+
+// Открыть модалку нового клиента: сброс + поля по протоколу инбаунда.
+function newClient() {
+  resetClientForm();
+  applyClientFieldVis();
+  openModal('modal-client');
 }
 
 function editClient(id) {
@@ -375,6 +407,7 @@ function editClient(id) {
   document.getElementById('c-days').value = '';
   document.getElementById('c-limit-up').value = c.traffic_limit_up ? (c.traffic_limit_up/1073741824).toFixed(1) : '';
   document.getElementById('c-limit-down').value = c.traffic_limit_down ? (c.traffic_limit_down/1073741824).toFixed(1) : '';
+  applyClientFieldVis();
   openModal('modal-client');
 }
 
@@ -383,23 +416,25 @@ async function saveClient() {
   const daysVal = parseInt(document.getElementById('c-days').value);
   const passVal = document.getElementById('c-password').value.trim();
 
+  // Гейтим поля по протоколу: скрытые (невалидные) не шлём.
+  const v = window._clientFieldVis || {uuid:true, flow:true, login:true, password:true};
   const body = {
     name:     document.getElementById('c-name').value.trim(),
     email:    document.getElementById('c-email').value.trim(),
-    username: document.getElementById('c-username').value.trim(),
-    flow:     document.getElementById('c-flow').value || null,
     traffic_limit_up:   gbToBytes(document.getElementById('c-limit-up').value),
     traffic_limit_down: gbToBytes(document.getElementById('c-limit-down').value),
   };
+  if (v.login) body.username = document.getElementById('c-username').value.trim();
+  body.flow = v.flow ? (document.getElementById('c-flow').value || null) : null;
 
   // Only include uuid when creating (not editing)
-  if (!editClientId) {
+  if (!editClientId && v.uuid) {
     const uuidVal = document.getElementById('c-uuid').value.trim();
     if (uuidVal) body.uuid = uuidVal;
   }
 
   // Only send password if user typed something
-  if (passVal) body.password = passVal;
+  if (v.password && passVal) body.password = passVal;
 
   // Only send expire_days if user filled the field
   if (!isNaN(daysVal) && daysVal > 0) body.expire_days = daysVal;

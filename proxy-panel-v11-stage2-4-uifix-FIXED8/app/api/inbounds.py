@@ -23,6 +23,26 @@ VALID_TRANSPORTS = {"tcp", "ws", "grpc", "kcp", "h2", "httpupgrade", "splithttp"
 XRAY_BIN = "/usr/local/bin/xray"
 
 
+def _validate_reality_compat(protocol: str, transport: str) -> str | None:
+    """Возвращает текст ошибки, если Reality несовместим с протоколом/транспортом.
+
+    Reality применяется ядром Xray только к VLESS и требует транспорт TCP.
+    На другом сочетании Reality либо игнорируется (инбаунд без шифрования),
+    либо конфиг не проходит проверку.
+    """
+    if protocol != "vless":
+        return (
+            f"Reality поддерживается только VLESS, а выбран протокол "
+            f"'{protocol}'. Выберите VLESS или отключите Reality."
+        )
+    if (transport or "tcp") != "tcp":
+        return (
+            f"Reality требует транспорт TCP, а выбран '{transport}'. "
+            f"Reality работает только с TCP."
+        )
+    return None
+
+
 def _apply_for_engine(engine: str) -> tuple[bool, str]:
     """Применяет конфиг только нужного движка.
 
@@ -448,6 +468,12 @@ def create_inbound():
     #   другой    → microsoft.com:443  (стандартный Reality fallback-dest)
     tcfg = dict(data.get("transport_config") or {})
     if engine == "xray" and tcfg.get("reality_public_key"):
+        # Reality применяется ядром только к VLESS и требует raw TCP. На
+        # другом протоколе/транспорте сервер тихо проигнорировал бы Reality
+        # (инбаунд остался бы БЕЗ шифрования) или не принял конфиг.
+        err = _validate_reality_compat(protocol, transport)
+        if err:
+            return jsonify({"error": err}), 400
         if not tcfg.get("reality_dest"):
             if port_normalized == 443:
                 tcfg["reality_dest"] = "127.0.0.1:8443"
@@ -592,6 +618,13 @@ def update_inbound(ib_id):
         ib.transport_config = json.dumps(data["transport_config"])
     if "extra_config" in data:
         ib.extra_config = json.dumps(data["extra_config"])
+
+    # Reality-совместимость: если после изменений инбаунд использует Reality,
+    # protocol (immutable в PUT) и transport должны быть VLESS+TCP.
+    if ib.engine == "xray" and ib.get_transport_config().get("reality_public_key"):
+        err = _validate_reality_compat(ib.protocol, ib.transport or "tcp")
+        if err:
+            return jsonify({"error": err}), 400
 
     # PRE-VALIDATION (синхронная): flush изменений в сессию (без commit),
     # генерируем конфиг и гоняем xray run -test. Только для xray.
