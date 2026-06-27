@@ -54,6 +54,14 @@ def create_app(config_overrides: dict = None) -> Flask:
             f"sqlite:///{os.path.join(app.instance_path, 'panel.db')}"
         ),
         SQLALCHEMY_TRACK_MODIFICATIONS=False,
+        # Кэширование статики (шрифты/иконки/логотип/css) браузером на 30 дней.
+        # Без этого Flask отдаёт Cache-Control: no-cache, и браузер на КАЖДОЙ
+        # странице перепроверяет все статические файлы отдельными запросами к
+        # серверу. На сети с заметным RTT это давало 1-2 секунды задержки на
+        # каждую загрузку. С max-age статика берётся из кэша без обращения к
+        # серверу. Имена файлов стабильны; при обновлении ассетов нужен
+        # hard-refresh (или поднять версию в ссылке).
+        SEND_FILE_MAX_AGE_DEFAULT=timedelta(days=30),
         SESSION_COOKIE_SECURE=os.environ.get("HTTPS_ENABLED", "false") == "true",
         SESSION_COOKIE_HTTPONLY=True,
         SESSION_COOKIE_SAMESITE="Lax",
