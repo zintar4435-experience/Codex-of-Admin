@@ -824,18 +824,27 @@ def get_xray_stats(client_email: str) -> dict:
             ],
             capture_output=True, text=True, timeout=5
         )
+        # `xray api statsquery` отдаёт JSON вида:
+        #   {"stat": [{"name": "user>>>X>>>traffic>>>uplink", "value": 123}, ...]}
+        # Поле "value" отсутствует, когда счётчик == 0. Раньше тут был
+        # построчный парсер, ожидавший формат "...uplink... value: N" в одной
+        # строке — он НИКОГДА не срабатывал на JSON (name и value на разных
+        # строках), поэтому весь Xray-трафик показывался нулём.
         up = down = 0
-        for line in result.stdout.splitlines():
-            if "uplink" in line and "value" in line:
-                try:
-                    up = int(line.split("value:")[-1].strip().split()[0])
-                except ValueError:
-                    pass
-            if "downlink" in line and "value" in line:
-                try:
-                    down = int(line.split("value:")[-1].strip().split()[0])
-                except ValueError:
-                    pass
+        try:
+            data = json.loads(result.stdout or "{}")
+        except (ValueError, TypeError):
+            data = {}
+        for entry in (data.get("stat") or []):
+            name = entry.get("name", "")
+            try:
+                value = int(entry.get("value", 0) or 0)
+            except (ValueError, TypeError):
+                value = 0
+            if name.endswith(">>>uplink"):
+                up = value
+            elif name.endswith(">>>downlink"):
+                down = value
         return {"up": up, "down": down}
     except Exception:
         return {"up": 0, "down": 0}
