@@ -768,6 +768,20 @@
     [data-theme="glass"] .sidebar-footer { border-top-color: var(--border); }
 
   </style>
+  <!-- Prefetch страниц меню при наведении (Speculation Rules API).
+       eagerness:moderate = загрузка начинается на hover — к моменту клика
+       HTML уже (частично) скачан, экономим сетевой круг (~RTT). Только
+       ссылки меню (.nav-link) — все они GET без side-эффектов. Браузеры
+       без поддержки (Firefox/Safari) просто игнорируют этот блок. -->
+  <script type="speculationrules">
+  {
+    "prefetch": [{
+      "source": "document",
+      "where": { "selector_matches": ".nav-link" },
+      "eagerness": "moderate"
+    }]
+  }
+  </script>
 </head>
 <body>
   <aside class="sidebar">
