@@ -414,6 +414,8 @@ def _seed_defaults():
         "xray_domain_strategy": "IPIfNonMatch",
         "panel_domain": "",
         "acme_email": "",
+        "xray_dns": "",                       # DoH-URL/IP; пусто = системный DNS
+        "xray_dns_query_strategy": "UseIP",
     }
     for key, value in defaults.items():
         if db.session.get(Setting, key) is None:
