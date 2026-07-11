@@ -789,11 +789,17 @@
       .modal-box { padding: 22px 20px; }
       .card { padding: 16px 18px; }
     }
-    /* ── Тема GLASS (data-theme="glass") — точный перенос «Liquid Glass» из
-       дизайна. Глубокий фон + анимированные цветные пятна, матовые панели.
-       Блюр (backdrop-filter) на верхнеуровневых панелях И на карточках; у
-       ВЛОЖЕННЫХ карточек блюр снимается (.card .card) — иначе Chrome рисует
-       чёрный фон при двойном backdrop-filter. ── */
+    /* ── Тема GLASS (data-theme="glass") — Liquid Glass, ОБЛЕГЧЁННАЯ версия
+       (по актуальному дизайну Panel_Themes_standalone).
+       Почему облегчена: прежний вариант «тормозил безбожно» — бесконечная
+       анимация цветных пятен (body::before) заставляла браузер КАЖДЫЙ КАДР
+       пересчитывать backdrop-filter у всех панелей сразу, а blur на каждой
+       карточке пересчитывался при каждом скролле. Теперь:
+       - фон статичный (background-attachment: fixed, без анимации);
+       - blur только на НЕПОДВИЖНЫХ элементах (sidebar/topbar/modal) — за
+         ними ничего не меняется, браузер кэширует результат;
+       - карточки — полупрозрачный тёмный тон БЕЗ backdrop-filter: стекло
+         на вид, ноль пересчётов при скролле. ── */
     [data-theme="glass"] {
       --bg: #080d11;
       --surface: rgba(255,255,255,0.07);
@@ -821,54 +827,37 @@
         linear-gradient(150deg, #0a1216 0%, #0b0f18 100%);
       background-attachment: fixed;
     }
-    /* анимированные дрейфующие пятна позади всего (z-index:-1), панели их размывают */
-    [data-theme="glass"] body::before {
-      content:""; position:fixed; inset:-25%; z-index:-1; pointer-events:none;
-      background:
-        radial-gradient(closest-side, rgba(46,134,168,0.55), transparent),
-        radial-gradient(closest-side, rgba(120,86,200,0.50), transparent),
-        radial-gradient(closest-side, rgba(28,150,120,0.48), transparent),
-        radial-gradient(closest-side, rgba(178,64,128,0.42), transparent);
-      background-size: 55% 55%, 50% 50%, 60% 60%, 48% 48%;
-      background-position: 8% 12%, 86% 6%, 78% 90%, 18% 88%;
-      background-repeat:no-repeat;
-      filter: blur(36px);
-      animation: glassDrift 26s ease-in-out infinite alternate;
-    }
-    @keyframes glassDrift {
-      0%   { background-position: 8% 12%, 86% 6%,  78% 90%, 18% 88%; }
-      50%  { background-position: 20% 2%, 72% 20%, 90% 76%, 4% 98%; }
-      100% { background-position: 2% 22%, 94% 0%,  68% 98%, 26% 78%; }
-    }
-    /* матовые верхнеуровневые панели */
+    /* матовые НЕПОДВИЖНЫЕ панели: blur здесь дешёвый — фон за ними
+       статичный, браузер считает размытие один раз и кэширует */
     [data-theme="glass"] .sidebar {
       background: linear-gradient(180deg, rgba(255,255,255,0.06), rgba(255,255,255,0.02));
-      backdrop-filter: blur(26px) saturate(150%); -webkit-backdrop-filter: blur(26px) saturate(150%);
+      backdrop-filter: blur(18px) saturate(140%); -webkit-backdrop-filter: blur(18px) saturate(140%);
       border-right: 1px solid rgba(255,255,255,0.10);
     }
     [data-theme="glass"] .topbar {
       background: rgba(255,255,255,0.04);
-      backdrop-filter: blur(20px) saturate(140%); -webkit-backdrop-filter: blur(20px) saturate(140%);
+      backdrop-filter: blur(16px) saturate(140%); -webkit-backdrop-filter: blur(16px) saturate(140%);
       border-bottom: 1px solid var(--border);
     }
+    /* карточки: полупрозрачный тёмный тон БЕЗ backdrop-filter — «стекло»
+       на вид (фон просвечивает), но скролл ничего не пересчитывает */
     [data-theme="glass"] .card {
-      background: rgba(255,255,255,0.07);
+      background: rgba(20,28,34,0.62);
       border: 1px solid rgba(255,255,255,0.13);
-      backdrop-filter: blur(26px) saturate(140%); -webkit-backdrop-filter: blur(26px) saturate(140%);
       box-shadow: 0 1px 0 rgba(255,255,255,0.10) inset, 0 8px 30px rgba(0,0,0,0.40);
     }
-    /* вложенные карточки — без второго blur (баг чёрного фона в Chrome) */
     [data-theme="glass"] .card .card,
     [data-theme="glass"] .modal-box .card {
       background: rgba(255,255,255,0.05);
-      backdrop-filter: none; -webkit-backdrop-filter: none; box-shadow: none;
+      box-shadow: none;
     }
     [data-theme="glass"] .modal-box {
-      background: rgba(22,28,32,0.72);
+      background: rgba(22,28,32,0.80);
       border: 1px solid rgba(255,255,255,0.13);
-      backdrop-filter: blur(26px) saturate(140%); -webkit-backdrop-filter: blur(26px) saturate(140%);
+      backdrop-filter: blur(18px) saturate(140%); -webkit-backdrop-filter: blur(18px) saturate(140%);
     }
-    [data-theme="glass"] .modal-backdrop { background: rgba(4,8,11,0.55); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); }
+    /* полноэкранный blur подложки модалки убран — дорогой; затемнения хватает */
+    [data-theme="glass"] .modal-backdrop { background: rgba(4,8,11,0.62); }
     /* навигация */
     [data-theme="glass"] .nav-link { color: var(--text-dim); border-left-color: transparent; }
     [data-theme="glass"] .nav-link:hover:not(.active) { background: rgba(255,255,255,0.06); color: var(--text-bright); }
