@@ -205,6 +205,44 @@ def create_app(config_overrides: dict = None) -> Flask:
             return jsonify({"error": "Внутренняя ошибка сервера"}), 500
         return e
 
+    # --- Сжатие ответов (gzip, stdlib — без зависимостей) ---
+    # HTML страниц панели 40-110 КБ; несжатый он занимает 3-4 сетевых круга
+    # (TCP slow-start) — на линке с RTT ~250мс это плюс ~секунда на КАЖДЫЙ
+    # переход по меню. gzip жмёт его в ~6-8 раз. В HTTPS-режиме сжимает Caddy
+    # (encode на маршруте панели), этот хук — для прямого доступа на :5000
+    # (HTTP-режим). Двойного сжатия нет: Caddy пропускает ответы, у которых
+    # уже стоит Content-Encoding.
+    import gzip as _gzip
+
+    _COMPRESSIBLE = {
+        "text/html", "application/json", "text/css",
+        "application/javascript", "image/svg+xml", "text/plain",
+    }
+
+    @app.after_request
+    def _compress_response(resp):
+        if (resp.direct_passthrough                      # статика через send_file
+                or resp.status_code != 200
+                or "Content-Encoding" in resp.headers
+                or resp.mimetype not in _COMPRESSIBLE):
+            return resp
+        if "gzip" not in request.headers.get("Accept-Encoding", "").lower():
+            return resp
+        body = resp.get_data()
+        if len(body) < 500:                              # мелочь сжимать незачем
+            return resp
+        packed = _gzip.compress(body, 6)
+        if len(packed) >= len(body):
+            return resp
+        resp.set_data(packed)
+        resp.headers["Content-Encoding"] = "gzip"
+        resp.headers["Content-Length"] = str(len(packed))
+        # Vary — чтобы промежуточные кэши не отдали сжатое клиенту без gzip.
+        vary = resp.headers.get("Vary", "")
+        if "accept-encoding" not in vary.lower():
+            resp.headers["Vary"] = f"{vary}, Accept-Encoding" if vary else "Accept-Encoding"
+        return resp
+
     if os.environ.get("HTTPS_ENABLED", "false").lower() == "true":
         from werkzeug.middleware.proxy_fix import ProxyFix
         app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1, x_for=1)

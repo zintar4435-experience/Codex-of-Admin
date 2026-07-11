@@ -211,10 +211,24 @@ def _panel_handler() -> dict:
 
 
 def _build_panel_route(panel_domain: str) -> dict:
-    """Reverse proxy route for the panel UI itself."""
+    """Reverse proxy route for the panel UI itself.
+
+    encode ставим ПЕРЕД reverse_proxy: HTML страниц панели ~40-110 КБ и без
+    сжатия занимает 3-4 сетевых круга на медленном линке (гzip жмёт его в
+    ~6-8 раз). Если gunicorn уже отдал сжатый ответ (fallback во Flask),
+    Caddy видит Content-Encoding и не сжимает повторно. На NaiveProxy-маршруты
+    encode не ставим — CONNECT-туннелям сжатие не нужно.
+    """
     return {
         "match": [{"host": [panel_domain]}],
-        "handle": [_panel_handler()],
+        "handle": [
+            {
+                "handler": "encode",
+                "encodings": {"zstd": {}, "gzip": {}},
+                "prefer": ["zstd", "gzip"],
+            },
+            _panel_handler(),
+        ],
         "terminal": True,
     }
 

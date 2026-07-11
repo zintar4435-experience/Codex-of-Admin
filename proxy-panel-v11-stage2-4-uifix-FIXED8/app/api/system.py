@@ -6,6 +6,7 @@ import re
 import json
 import socket
 import secrets
+import threading
 import time
 import urllib.request
 from flask import Blueprint, request, jsonify
@@ -529,13 +530,32 @@ def _service_status(name: str) -> dict:
     return {"name": name, "active": active}
 
 
+# Кэш версии установленного Xray: она меняется только при обновлении бинарника,
+# а subprocess-вызов на каждый запрос — лишний форк на слабом VPS.
+# Сбрасывается явно после xray_update (см. _reset_xray_version_cache).
+_xray_ver_cache = {"ver": "", "ts": 0.0}
+_XRAY_VER_TTL = 300.0
+
+
+def _reset_xray_version_cache():
+    _xray_ver_cache["ver"] = ""
+    _xray_ver_cache["ts"] = 0.0
+
+
 def _xray_version() -> str:
+    now = time.time()
+    if _xray_ver_cache["ver"] and now - _xray_ver_cache["ts"] < _XRAY_VER_TTL:
+        return _xray_ver_cache["ver"]
     try:
         r = subprocess.run([XRAY_BINARY, "version"], capture_output=True, text=True, timeout=5)
         m = re.search(r"Xray (\S+)", r.stdout)
-        return m.group(1) if m else "unknown"
+        ver = m.group(1) if m else "unknown"
     except Exception:
-        return "unknown"
+        ver = "unknown"
+    if ver != "unknown":
+        _xray_ver_cache["ver"] = ver
+        _xray_ver_cache["ts"] = now
+    return ver
 
 
 # Кэш последней версии Xray с GitHub: запрос к api.github.com медленный
@@ -568,21 +588,22 @@ def _xray_latest_version() -> str:
 
 
 # Кэш ответа /status: его поллит статус-бар на КАЖДОЙ открытой странице,
-# а внутри — несколько subprocess-вызовов (systemctl is-active xray/caddy,
-# xray version) + HTTP к Caddy admin. Без кэша на маленьком VPS это
-# постоянная фоновая «молотилка» процессов. TTL 4с: статус-бар обновляется
-# раз в 15с, всплески от нескольких вкладок/воркеров схлопываются в один
-# реальный опрос.
+# а внутри — несколько subprocess-вызовов (systemctl is-active xray/caddy)
+# + HTTP к Caddy admin. Схема stale-while-revalidate: запрос ВСЕГДА получает
+# ответ мгновенно из кэша, а если кэш устарел (> TTL) — обновление уходит в
+# фоновый поток (один на воркер, под замком). Раньше TTL (4с) был меньше
+# периода поллинга (15с), и КАЖДЫЙ опрос промахивался и блокировался на
+# subprocess-вызовах — это и были периодические «затупы». Синхронный сбор
+# остался только у самого первого запроса после старта воркера.
 _status_cache = {"ts": 0.0, "data": None}
-_STATUS_TTL = 4.0
+_STATUS_TTL = 10.0
+_status_lock = threading.Lock()
+_status_refreshing = False
 
 
-@bp.get("/status")
-@login_required
-def status():
-    now = time.time()
-    if _status_cache["data"] is not None and now - _status_cache["ts"] < _STATUS_TTL:
-        return jsonify(_status_cache["data"])
+def _collect_status() -> dict:
+    """Реальный сбор статуса (subprocess + HTTP к Caddy). Небыстрый — зовём
+    его либо на самом первом запросе, либо из фонового потока."""
     xray = _service_status("xray")
     caddy_svc = _service_status("caddy")
     caddy_api = get_caddy_status()
@@ -598,7 +619,7 @@ def status():
     except Exception:
         disk_total = disk_used = 0
 
-    data = {
+    return {
         "xray":   {**xray, "version": _xray_version()},
         "caddy":  {**caddy_svc, "api_reachable": caddy_api["running"]},
         "system": {
@@ -608,6 +629,42 @@ def status():
             "disk_used":  disk_used,
         },
     }
+
+
+def _refresh_status_async():
+    """Фоновое обновление кэша. Замок гарантирует один поток на воркер;
+    _collect_status не трогает БД/контекст приложения — потоку ничего не нужно."""
+    global _status_refreshing
+    with _status_lock:
+        if _status_refreshing:
+            return
+        _status_refreshing = True
+
+    def _work():
+        global _status_refreshing
+        try:
+            data = _collect_status()
+            _status_cache["data"] = data
+            _status_cache["ts"] = time.time()
+        except Exception:
+            pass  # следующий запрос попробует снова
+        finally:
+            with _status_lock:
+                _status_refreshing = False
+
+    threading.Thread(target=_work, name="status-refresh", daemon=True).start()
+
+
+@bp.get("/status")
+@login_required
+def status():
+    now = time.time()
+    if _status_cache["data"] is not None:
+        if now - _status_cache["ts"] >= _STATUS_TTL:
+            _refresh_status_async()
+        return jsonify(_status_cache["data"])
+    # Первый запрос после старта воркера — собираем синхронно.
+    data = _collect_status()
     _status_cache["data"] = data
     _status_cache["ts"] = now
     return jsonify(data)
@@ -653,6 +710,8 @@ def xray_update():
             capture_output=True, text=True, timeout=120
         )
         if result.returncode == 0:
+            # Бинарник сменился — закэшированная версия больше не актуальна.
+            _reset_xray_version_cache()
             log_action("xray.update", target_type="service", target_name="xray",
                        details={"version": version, "ok": True})
             return jsonify({"ok": True, "version": version,
