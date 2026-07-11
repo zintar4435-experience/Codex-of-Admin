@@ -11,7 +11,7 @@ from app.core.xray import apply_xray_config
 from app.core.caddy import apply_caddy_config
 from app.core.audit import log_action
 from app.core.input_validators import (
-    validate_tag, validate_port, validate_tls_paths,
+    validate_tag, validate_port, validate_tls_paths, validate_domain,
 )
 
 bp = Blueprint("inbounds", __name__)
@@ -472,6 +472,11 @@ def create_inbound():
         # в /etc/xray/certs/<domain>/ через xray-cert-sync). Иначе — ручные пути.
         domain = (data.get("domain") or "").strip()
         if not (cert_path or key_path) and domain:
+            # Домен идёт в путь /etc/xray/certs/<domain>/ и в SNI конфига —
+            # валидируем формат, чтобы отсечь traversal (../) и мусор.
+            ok, err = validate_domain(domain)
+            if not ok:
+                return jsonify({"error": err}), 400
             from app.core.certs import trigger_cert_sync, xray_cert_paths
             trigger_cert_sync()
             cert_path, key_path = xray_cert_paths(domain)
@@ -634,6 +639,9 @@ def update_inbound(ib_id):
                 # берём сертификат Caddy для этого домена.
                 merged_domain = (data.get("domain", ib.domain) or "").strip()
                 if not (merged_cert or merged_key) and merged_domain:
+                    ok, err = validate_domain(merged_domain)
+                    if not ok:
+                        return jsonify({"error": err}), 400
                     from app.core.certs import trigger_cert_sync, xray_cert_paths
                     trigger_cert_sync()
                     merged_cert, merged_key = xray_cert_paths(merged_domain)
