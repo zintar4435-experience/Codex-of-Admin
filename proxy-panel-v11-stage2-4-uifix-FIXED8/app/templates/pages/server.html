@@ -178,16 +178,31 @@
     border: 1px solid rgba(255,255,255,.08);
     border-radius: 4px;
   }
-  .theme-preview-card.codex {
-    background: #131a17;
-    border: 1px solid rgba(255,255,255,.08);
-    border-radius: 8px;
+  .theme-preview-card.codex-red {
+    background: repeating-linear-gradient(0deg, rgba(255,255,255,.02) 0 1px, transparent 1px 3px), #140a0d;
+    border: none;
+    border-radius: 0;
+    clip-path: polygon(12px 0, 100% 0, 100% calc(100% - 12px), calc(100% - 12px) 100%, 0 100%, 0 12px);
+    filter: drop-shadow(0 0 0.7px rgba(255,46,77,.9)) drop-shadow(0 0 6px rgba(255,46,77,.25));
+  }
+  .theme-preview-card.codex-green {
+    background: repeating-linear-gradient(0deg, rgba(255,255,255,.02) 0 1px, transparent 1px 3px), #0a1710;
+    border: none;
+    border-radius: 0;
+    clip-path: polygon(12px 0, 100% 0, 100% calc(100% - 12px), calc(100% - 12px) 100%, 0 100%, 0 12px);
+    filter: drop-shadow(0 0 0.7px rgba(57,255,157,.9)) drop-shadow(0 0 6px rgba(57,255,157,.25));
   }
   .theme-preview-card.glass {
     background: rgba(255,255,255,.10);
     border: 0.5px solid rgba(255,255,255,.22);
     border-radius: 8px;
     backdrop-filter: blur(10px) saturate(140%);
+  }
+  .theme-preview-card.graphite {
+    background: #191a1d;
+    border: 1px solid #2b2d31;
+    border-radius: 6px;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.05), 0 2px 6px rgba(0,0,0,.45);
   }
   .theme-name {
     font-size: 13px;
@@ -407,12 +422,19 @@
         <div class="theme-name">Slate</div>
         <div class="theme-desc">Текущий стиль. Спокойные slate-тона, emerald-акцент, плоские карточки. Меньше нагрузки на глаза при длительной работе.</div>
       </button>
-      <button type="button" class="theme-option" data-theme-name="codex" onclick="setTheme('codex')">
-        <div class="theme-preview" style="background: radial-gradient(120% 80% at 80% 0%, #11241d 0%, #0a100d 60%)">
-          <div class="theme-preview-card codex"></div>
+      <button type="button" class="theme-option" data-theme-name="codex-red" onclick="setTheme('codex-red')">
+        <div class="theme-preview" style="background: radial-gradient(120% 90% at 82% -10%, rgba(255,46,77,.25) 0%, transparent 55%), #0a0507">
+          <div class="theme-preview-card codex-red"></div>
         </div>
-        <div class="theme-name">Codex</div>
-        <div class="theme-desc">Тёмно-изумрудная тема из дизайна Codex of Admin: глубокий градиентный фон, мятный акцент, аккуратные карточки.</div>
+        <div class="theme-name">Codex Red</div>
+        <div class="theme-desc">Киберпанк: неоново-красная «проводка», голографические экраны со сканлайнами, скошенные углы, техно-моно шрифт.</div>
+      </button>
+      <button type="button" class="theme-option" data-theme-name="codex-green" onclick="setTheme('codex-green')">
+        <div class="theme-preview" style="background: radial-gradient(120% 90% at 82% -10%, rgba(57,255,157,.25) 0%, transparent 55%), #05100b">
+          <div class="theme-preview-card codex-green"></div>
+        </div>
+        <div class="theme-name">Codex Green</div>
+        <div class="theme-desc">Тот же киберпанк, но с неоново-зелёной матрицей вместо красного неона.</div>
       </button>
       <button type="button" class="theme-option" data-theme-name="glass" onclick="setTheme('glass')">
         <div class="theme-preview" style="background: radial-gradient(60% 60% at 20% 10%, rgba(34,108,138,.7), transparent 60%), radial-gradient(60% 60% at 90% 90%, rgba(150,52,108,.6), transparent 60%), #080d11">
@@ -420,6 +442,13 @@
         </div>
         <div class="theme-name">Glass</div>
         <div class="theme-desc">Liquid Glass: цветной фон сквозь матовые панели, мятный акцент. Стиль из дизайна Codex. Тема по умолчанию.</div>
+      </button>
+      <button type="button" class="theme-option" data-theme-name="graphite" onclick="setTheme('graphite')">
+        <div class="theme-preview" style="background: radial-gradient(150% 110% at 50% -20%, #1a1b1f 0%, #0d0e11 62%)">
+          <div class="theme-preview-card graphite"></div>
+        </div>
+        <div class="theme-name">Graphite</div>
+        <div class="theme-desc">Матовый тёмный графит: зернистая фактура, приглушённый шалфейный акцент, мягкие тени. Спокойная и контрастная.</div>
       </button>
     </div>
   </div>

@@ -12,7 +12,10 @@
     (function() {
       try {
         var t = localStorage.getItem('panel-theme') || 'glass';
-        if (t && t !== 'slate') {
+        if (t === 'codex') t = 'codex-red';   // старая тема codex переименована
+        var valid = ['slate', 'codex-red', 'codex-green', 'glass', 'graphite'];
+        if (valid.indexOf(t) === -1) t = 'glass';
+        if (t !== 'slate') {
           document.documentElement.setAttribute('data-theme', t);
         }
       } catch (e) { /* localStorage может быть выключен — терпим */ }
@@ -573,34 +576,158 @@
        все компоненты). Где переменных мало — точечные правила по селекторам.
        ═══════════════════════════════════════════════════════════════ */
 
-    /* ── Тема CODEX (data-theme="codex") — «красивая» тёмная тема из дизайна
-       Codex of Admin. Заменяет прежнюю Frosted. Сплошные тёмно-изумрудные
-       поверхности + мягкий радиальный градиент фона. ── */
-    [data-theme="codex"] {
-      --bg: #0a100d;
-      --surface: #131a17;
-      --surface2: #1a221e;
-      --border: rgba(255,255,255,0.08);
-      --border-mute: rgba(255,255,255,0.05);
-      --accent: #5fe3b8;
-      --accent-hi: #7eebc5;
-      --accent2: #7c9cff;
-      --danger: #f06d6d;
-      --warn: #f5b35c;
-      --info: #b289ff;
-      --text: #e8efe9;
-      --text-dim: #a8b3ae;
-      --text-mute: #6b756f;
-      --text-bright: #ffffff;
-      --sans: 'Inter Tight', 'Inter', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+    /* ── Темы CODEX RED / CODEX GREEN — киберпанк: неоновая «проводка»,
+       голографические экраны со сканлайнами, скошенные углы (clip-path),
+       техно-моно типографика на дисплейных элементах. Общие правила идут
+       по [data-theme^="codex"], палитры различаются токенами.
+       Primary-кнопки НАМЕРЕННО зелёные в обеих (semантика «действие=ок»). ── */
+    [data-theme="codex-red"] {
+      --bg: #0a0507; --surface: #140a0d; --surface2: #1f0e13;
+      --border: rgba(var(--neon-rgb),0.26); --border-mute: rgba(var(--neon-rgb),0.11);
+      --accent: #ff2e4d; --accent-hi: #ff5c74; --accent2: #35e0ff;
+      --danger: #ff6a3d; --warn: #ffc23c; --info: #a98bff;
+      --text: #dbe9ec; --text-dim: #8199a0; --text-mute: #566a70; --text-bright: #f2fbff;
+      --neon-rgb: 255,46,77; --neon2-rgb: 53,224,255; --ok: #39ff9d; --ok-rgb: 57,255,157;
     }
-    [data-theme="codex"] body {
-      background: radial-gradient(120% 80% at 80% 0%, #11241d 0%, #0a100d 55%);
-      background-attachment: fixed;
+    [data-theme="codex-green"] {
+      --bg: #05100b; --surface: #0a1710; --surface2: #0e2015;
+      --border: rgba(var(--ok-rgb),0.24); --border-mute: rgba(var(--ok-rgb),0.11);
+      --accent: #39ff9d; --accent-hi: #6bffb8; --accent2: #35e0ff;
+      --danger: #ff6a3d; --warn: #ffc23c; --info: #a98bff;
+      --text: #d7ece0; --text-dim: #7fa090; --text-mute: #54705f; --text-bright: #f2fff6;
+      --neon-rgb: 57,255,157; --neon2-rgb: 53,224,255; --ok: #39ff9d; --ok-rgb: 57,255,157;
     }
-    [data-theme="codex"] .card { box-shadow: 0 8px 24px rgba(0,0,0,0.35); }
-    [data-theme="codex"] .nav-link.active { border-left-color: var(--accent); }
-    [data-theme="codex"] .btn-primary { color: #062019; }
+    [data-theme="codex-red"] body {
+      background-color: #0a0507;
+      background-image:
+        radial-gradient(120% 90% at 82% -10%, #ff2e4d33 0%, transparent 55%),
+        radial-gradient(90% 70% at 0% 105%, #35e0ff1a 0%, transparent 55%),
+        repeating-linear-gradient(0deg, #35e0ff09 0px, #35e0ff09 1px, transparent 1px, transparent 3px),
+        url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='44' height='44'%3E%3Cpath d='M44 0H0V44' fill='none' stroke='%23ff2e4d21' stroke-width='1'/%3E%3C/svg%3E");
+      background-repeat: no-repeat, no-repeat, repeat, repeat;
+      background-attachment: fixed, fixed, fixed, fixed;
+    }
+    [data-theme="codex-green"] body {
+      background-color: #05100b;
+      background-image:
+        radial-gradient(120% 90% at 82% -10%, #39ff9d33 0%, transparent 55%),
+        radial-gradient(90% 70% at 0% 105%, #35e0ff1a 0%, transparent 55%),
+        repeating-linear-gradient(0deg, #35e0ff09 0px, #35e0ff09 1px, transparent 1px, transparent 3px),
+        url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='44' height='44'%3E%3Cpath d='M44 0H0V44' fill='none' stroke='%2339ff9d21' stroke-width='1'/%3E%3C/svg%3E");
+      background-repeat: no-repeat, no-repeat, repeat, repeat;
+      background-attachment: fixed, fixed, fixed, fixed;
+    }
+    /* голографические экраны: сканлайны + внутренняя подсветка */
+    [data-theme^="codex"] .sidebar, [data-theme^="codex"] .topbar {
+      border-color: rgba(var(--neon-rgb),0.24);
+      box-shadow: inset 0 -1px 0 rgba(var(--neon2-rgb),0.10);
+    }
+    [data-theme^="codex"] .card, [data-theme^="codex"] .stat-card, [data-theme^="codex"] .modal-box {
+      background:
+        repeating-linear-gradient(0deg, rgba(255,255,255,0.014) 0px, rgba(255,255,255,0.014) 1px, transparent 1px, transparent 3px),
+        var(--surface);
+      box-shadow: inset 0 1px 0 rgba(var(--neon2-rgb),0.20), inset 0 0 24px rgba(var(--neon-rgb),0.06), 0 0 22px rgba(var(--neon-rgb),0.05);
+    }
+    [data-theme^="codex"] .card .card {
+      background: rgba(var(--neon-rgb),0.05);
+      box-shadow: inset 0 0 0 1px rgba(var(--neon-rgb),0.18);
+      clip-path: polygon(14px 0, 100% 0, 100% calc(100% - 14px), calc(100% - 14px) 100%, 0 100%, 0 14px);
+      filter: none;
+    }
+    /* скошенные киберпанк-углы + неоновая кромка через drop-shadow */
+    [data-theme^="codex"] .card, [data-theme^="codex"] .stat-card, [data-theme^="codex"] .modal-box,
+    [data-theme^="codex"] .code-block, [data-theme^="codex"] .toast {
+      border: none;
+      clip-path: polygon(24px 0, 100% 0, 100% calc(100% - 24px), calc(100% - 24px) 100%, 0 100%, 0 24px);
+      filter: drop-shadow(0 0 0.7px rgba(var(--neon-rgb),0.9)) drop-shadow(0 0 7px rgba(var(--neon-rgb),0.16));
+    }
+    [data-theme^="codex"] .btn {
+      border: none;
+      clip-path: polygon(9px 0, 100% 0, 100% calc(100% - 9px), calc(100% - 9px) 100%, 0 100%, 0 9px);
+    }
+    [data-theme^="codex"] .badge, [data-theme^="codex"] .proto {
+      clip-path: polygon(6px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%, 0 6px);
+    }
+    [data-theme^="codex"] .form-control {
+      clip-path: polygon(9px 0, 100% 0, 100% calc(100% - 9px), calc(100% - 9px) 100%, 0 100%, 0 9px);
+    }
+    /* свечение и цвета */
+    [data-theme^="codex"] .sidebar-logo span { color: var(--accent); text-shadow: 0 0 10px rgba(var(--neon-rgb),0.55); }
+    [data-theme^="codex"] .card-title, [data-theme^="codex"] .modal-title { text-shadow: 0 0 8px rgba(var(--neon-rgb),0.4); }
+    [data-theme^="codex"] .stat-value { text-shadow: 0 0 10px rgba(var(--neon-rgb),0.35); }
+    [data-theme^="codex"] .stat-value.accent { color: var(--accent2); text-shadow: 0 0 10px rgba(var(--neon2-rgb),0.45); }
+    [data-theme^="codex"] .nav-link.active {
+      box-shadow: inset 0 0 18px rgba(var(--neon-rgb),0.14);
+      text-shadow: 0 0 6px rgba(var(--neon-rgb),0.5);
+      background: rgba(var(--neon-rgb),0.07);
+    }
+    [data-theme^="codex"] .btn-primary {
+      background: #12c26a; color: #04140b;
+      box-shadow: 0 0 14px rgba(var(--ok-rgb),0.5), inset 0 1px 0 rgba(255,255,255,0.25);
+      filter: drop-shadow(0 0 5px rgba(var(--ok-rgb),0.45));
+    }
+    [data-theme^="codex"] .btn-primary:hover:not(:disabled) { background: #22e084; }
+    [data-theme^="codex"] .btn-outline { background: var(--surface2); color: var(--text); }
+    [data-theme^="codex"] .btn-outline:hover:not(:disabled) { background: rgba(var(--neon-rgb),0.12); color: var(--text-bright); }
+    [data-theme^="codex"] .btn-danger { filter: drop-shadow(0 0 5px rgba(255,106,61,0.4)); }
+    [data-theme^="codex"] .progress-bar { box-shadow: 0 0 10px rgba(var(--neon-rgb),0.55); }
+    [data-theme^="codex"] .code-block {
+      color: var(--accent2); border-color: rgba(var(--neon2-rgb),0.32);
+      text-shadow: 0 0 6px rgba(var(--neon2-rgb),0.22);
+      filter: drop-shadow(0 0 0.7px rgba(var(--neon2-rgb),0.85)) drop-shadow(0 0 7px rgba(var(--neon2-rgb),0.14));
+    }
+    /* семантика «зелёное = хорошо» остаётся зелёной (неон) в обеих codex-темах */
+    [data-theme^="codex"] .dot-green { background: var(--ok); box-shadow: 0 0 9px var(--ok); }
+    [data-theme^="codex"] .badge-active { color: var(--ok); background: rgba(var(--ok-rgb),0.13); }
+    [data-theme^="codex"] .toast.success { border-color: rgba(var(--ok-rgb),0.45); }
+    /* киберпанк-типографика: техно-моно + капс на дисплейных элементах */
+    [data-theme^="codex"] .sidebar-logo span, [data-theme^="codex"] .card-title,
+    [data-theme^="codex"] .modal-title, [data-theme^="codex"] .nav-link,
+    [data-theme^="codex"] .nav-section, [data-theme^="codex"] .stat-label,
+    [data-theme^="codex"] .stat-value, [data-theme^="codex"] th,
+    [data-theme^="codex"] .btn, [data-theme^="codex"] .badge,
+    [data-theme^="codex"] .proto, [data-theme^="codex"] .badge-status,
+    [data-theme^="codex"] .empty-title {
+      font-family: 'JetBrains Mono', 'Cascadia Code', ui-monospace, Menlo, monospace;
+    }
+    [data-theme^="codex"] .sidebar-logo span { text-transform: uppercase; letter-spacing: 0.14em; }
+    [data-theme^="codex"] .card-title, [data-theme^="codex"] .modal-title { text-transform: uppercase; letter-spacing: 0.1em; font-size: 12.5px; }
+    [data-theme^="codex"] .nav-link { text-transform: uppercase; letter-spacing: 0.09em; font-size: 12px; }
+    [data-theme^="codex"] .btn { text-transform: uppercase; letter-spacing: 0.08em; }
+    [data-theme^="codex"] .empty-title { text-transform: uppercase; letter-spacing: 0.12em; }
+    /* терминальные маркеры */
+    [data-theme^="codex"] .sidebar-logo span::before { content: "> "; color: var(--accent2); }
+    [data-theme^="codex"] .nav-section::before { content: "// "; color: var(--accent); }
+    [data-theme^="codex"] .nav-link.active::before { content: "› "; color: var(--accent); font-weight: 700; }
+
+    /* ── Тема GRAPHITE — матовый тёмный графит: зернистая фактура (inline
+       SVG feTurbulence), приглушённый шалфейный акцент, «вдавленные» поля,
+       мягкие поглощённые тени. Без blur и без анимаций. ── */
+    [data-theme="graphite"] {
+      --bg: #101114; --surface: #191a1d; --surface2: #212327;
+      --border: #2b2d31; --border-mute: #202225;
+      --accent: #93a89b; --accent-hi: #a9b8ae; --accent2: #8b96a8;
+      --danger: #c98781; --warn: #c2a878; --info: #9c93a6;
+      --text: #d7d8db; --text-dim: #8b8d92; --text-mute: #5f6167; --text-bright: #f4f4f5;
+    }
+    [data-theme="graphite"] body {
+      background-color: var(--bg);
+      background-image:
+        radial-gradient(150% 110% at 50% -20%, #1a1b1f 0%, #0d0e11 62%),
+        url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.82' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='200' height='200' filter='url(%23n)' opacity='0.5'/%3E%3C/svg%3E");
+      background-repeat: no-repeat, repeat;
+      background-attachment: fixed, fixed;
+    }
+    [data-theme="graphite"] .card { box-shadow: inset 0 1px 0 rgba(255,255,255,0.05), 0 2px 6px rgba(0,0,0,0.45); }
+    [data-theme="graphite"] .card .card { background: var(--bg); box-shadow: inset 0 0 0 1px var(--border-mute); }
+    [data-theme="graphite"] .stat-card { box-shadow: inset 0 1px 0 rgba(255,255,255,0.04); }
+    [data-theme="graphite"] .card-title, [data-theme="graphite"] .stat-value,
+    [data-theme="graphite"] .modal-title, [data-theme="graphite"] .sidebar-logo span { text-shadow: 0 1px 0 rgba(0,0,0,0.5); }
+    [data-theme="graphite"] .form-control { box-shadow: inset 0 1px 2px rgba(0,0,0,0.4); }
+    [data-theme="graphite"] .code-block { box-shadow: inset 0 1px 2px rgba(0,0,0,0.4); color: var(--accent); }
+    [data-theme="graphite"] .btn-primary { color: #141715; box-shadow: inset 0 1px 0 rgba(255,255,255,0.16); }
+    [data-theme="graphite"] .nav-link.active { background: rgba(147,168,155,0.08); }
+    [data-theme="graphite"] .badge-active { background: rgba(147,168,155,0.14); }
 
     /* ─── Hamburger button (виден только на мобильных) ──────────── */
     .sidebar-toggle {
