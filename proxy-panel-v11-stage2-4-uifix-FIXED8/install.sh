@@ -456,6 +456,102 @@ run chmod 440 /etc/sudoers.d/proxypanel-xray-update
 run visudo -c -f /etc/sudoers.d/proxypanel-xray-update \
     || { rm -f /etc/sudoers.d/proxypanel-xray-update; error "Ошибка синтаксиса sudoers-файла"; }
 
+# ── Сторож (watchdog): авто-восстановление панели ────────────
+# Раз в 2 минуты проверяет здоровье сервисов и панели. При реальном сбое
+# (сервис упал, gunicorn завис, Caddy потерял runtime-конфиг в HTTPS-режиме)
+# перезапускает proxy-panel — панель заново пушит конфиг в Caddy. Есть
+# cooldown и перепроверки, чтобы не зациклиться и не реагировать на «моргание».
+info "Установка сторожа (авто-восстановление)..."
+write_file /usr/local/bin/proxy-panel-watchdog.sh <<'WATCHDOG'
+#!/usr/bin/env bash
+# Сторож панели: раз в ~2 минуты (cron.d) проверяет здоровье и при реальном
+# сбое восстанавливает. Запускается root'ом. Команды переопределяемы env
+# (для тестов). Не трогает ничего, если всё в порядке.
+set -uo pipefail
+
+SYSTEMCTL="${WD_SYSTEMCTL:-systemctl}"
+CURL="${WD_CURL:-curl}"
+STATE="${WD_STATE:-/var/lib/proxy-panel/watchdog.state}"
+ENV_FILE="${WD_ENV_FILE:-/opt/proxy-panel/instance/.env}"
+LOG="${WD_LOG:-/var/log/proxy-panel-watchdog.log}"
+COOLDOWN="${WD_COOLDOWN:-300}"
+HEALTH_URL="http://127.0.0.1:5000/api/system/health"
+CADDY_CFG_URL="http://127.0.0.1:2019/config/"
+
+log(){ echo "$(date -Is) $*" >> "$LOG" 2>/dev/null || true; command -v logger >/dev/null 2>&1 && logger -t proxy-panel-watchdog "$*" || true; }
+mkdir -p "$(dirname "$STATE")" 2>/dev/null || true
+
+now=$(date +%s)
+last=0; [[ -f "$STATE" ]] && last=$(cat "$STATE" 2>/dev/null || echo 0)
+cooldown_active(){ (( now - last < COOLDOWN )); }
+
+restart_panel(){  # минимальное восстановление: панель заново пушит конфиг в Caddy
+  if cooldown_active; then log "проблема [$1], но cooldown ($(( COOLDOWN-(now-last) ))с) — пропуск"; return 1; fi
+  echo "$now" > "$STATE"
+  log "ВОССТАНОВЛЕНИЕ [$1]: restart proxy-panel"
+  $SYSTEMCTL restart proxy-panel 2>/dev/null || true
+  $SYSTEMCTL start proxy-panel-scheduler 2>/dev/null || true
+  return 0
+}
+
+svc_active(){ $SYSTEMCTL is-active "$1" --quiet 2>/dev/null; }
+svc_enabled(){ $SYSTEMCTL is-enabled "$1" --quiet 2>/dev/null; }
+panel_healthy(){ $CURL -m 5 -sf "$HEALTH_URL" >/dev/null 2>&1; }
+
+# 1) Включённый сервис не активен → поднять (с перепроверкой на «моргание»).
+for svc in xray caddy proxy-panel proxy-panel-scheduler; do
+  if svc_enabled "$svc" && ! svc_active "$svc"; then
+    sleep 6
+    svc_active "$svc" && continue     # само поднялось — это было «моргание»
+    if cooldown_active; then log "$svc не активен, но cooldown — пропуск"; exit 0; fi
+    echo "$now" > "$STATE"
+    log "ВОССТАНОВЛЕНИЕ: сервис $svc не активен → start"
+    $SYSTEMCTL start "$svc" 2>/dev/null || true
+    exit 0
+  fi
+done
+
+# 2) Панель не отвечает локально (gunicorn завис) → restart panel.
+if ! panel_healthy; then
+  sleep 8
+  panel_healthy && exit 0            # транзиентно — игнор
+  restart_panel "панель не отвечает /health"; exit 0
+fi
+
+# 3) HTTPS-режим, но Caddy потерял runtime-конфиг (нет https-routes) → re-push.
+https_on="false"
+[[ -f "$ENV_FILE" ]] && grep -qi '^HTTPS_ENABLED=true' "$ENV_FILE" && https_on="true"
+if [[ "$https_on" == "true" ]]; then
+  cfg=$($CURL -m 5 -s "$CADDY_CFG_URL" 2>/dev/null || echo "")
+  if [[ -n "$cfg" ]]; then
+    routes="?"
+    if command -v jq >/dev/null 2>&1; then
+      routes=$(echo "$cfg" | jq -r '((.apps.http.servers.https.routes)//[])|length' 2>/dev/null || echo "?")
+    else
+      echo "$cfg" | grep -q '"routes"' && routes=1 || routes=0
+    fi
+    if [[ "$routes" == "0" ]]; then
+      sleep 6
+      cfg2=$($CURL -m 5 -s "$CADDY_CFG_URL" 2>/dev/null || echo "")
+      echo "$cfg2" | grep -q '"routes"' && exit 0   # появилось — игнор
+      restart_panel "Caddy без https-routes (потерян конфиг)"; exit 0
+    fi
+  fi
+fi
+exit 0
+WATCHDOG
+run chmod 755 /usr/local/bin/proxy-panel-watchdog.sh
+run chown root:root /usr/local/bin/proxy-panel-watchdog.sh
+
+write_file /etc/cron.d/proxy-panel-watchdog <<'EOF'
+# Сторож панели: авто-восстановление при сбоях. Каждые 2 минуты, от root.
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+*/2 * * * * root /usr/local/bin/proxy-panel-watchdog.sh >/dev/null 2>&1
+EOF
+run chmod 644 /etc/cron.d/proxy-panel-watchdog
+run chown root:root /etc/cron.d/proxy-panel-watchdog
+
 # ── 5. Панель ────────────────────────────────────────────────
 info "Установка ProxyPanel..."
 
