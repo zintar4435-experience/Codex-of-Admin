@@ -212,6 +212,74 @@ LRCADDY
 # если его ещё нет (для апгрейда со старых версий, где шедулер
 # работал внутри gunicorn). Идемпотентно.
 # ─────────────────────────────────────────────────────────────
+ensure_xray_cert_bridge() {
+    # Устанавливает cert-bridge (Caddy→Xray) на существующих установках:
+    # каталог /etc/xray/certs, скрипт xray-cert-sync.sh, cron.daily и
+    # sudoers-строку. Идемпотентно.
+    local XRAY_USER="xray"
+    info "Проверка cert-bridge (сертификаты Caddy → Xray)..."
+    mkdir -p /etc/xray/certs
+    chown root:"${XRAY_USER}" /etc/xray/certs 2>/dev/null || true
+    chmod 750 /etc/xray/certs
+
+    cat > /usr/local/bin/xray-cert-sync.sh <<'CERTSYNC'
+#!/usr/bin/env bash
+# Копирует TLS-сертификаты Caddy в читаемое Xray место:
+# /etc/xray/certs/<domain>/{cert.pem,key.pem} (640 root:xray).
+set -euo pipefail
+CADDY_CERTS="${CADDY_CERTS_DIR:-/var/lib/caddy/.local/share/caddy/certificates}"
+XRAY_CERTS="${XRAY_CERTS_DIR:-/etc/xray/certs}"
+CERT_GROUP="${XRAY_CERT_GROUP:-xray}"
+[[ -d "$CADDY_CERTS" ]] || { echo "Caddy cert storage не найден: $CADDY_CERTS"; exit 0; }
+mkdir -p "$XRAY_CERTS"
+shopt -s nullglob
+synced=0
+for cadir in "$CADDY_CERTS"/*/; do
+  for domdir in "$cadir"*/; do
+    domain="$(basename "$domdir")"
+    crt="$domdir$domain.crt"; key="$domdir$domain.key"
+    [[ -f "$crt" && -f "$key" ]] || continue
+    dst="$XRAY_CERTS/$domain"; mkdir -p "$dst"
+    if getent group "$CERT_GROUP" >/dev/null 2>&1; then
+      install -m 640 -o root -g "$CERT_GROUP" "$crt" "$dst/cert.pem"
+      install -m 640 -o root -g "$CERT_GROUP" "$key" "$dst/key.pem"
+    else
+      install -m 640 "$crt" "$dst/cert.pem"; install -m 640 "$key" "$dst/key.pem"
+    fi
+    synced=$((synced+1))
+  done
+done
+echo "xray-cert-sync: synced ${synced} cert(s) into ${XRAY_CERTS}"
+CERTSYNC
+    chmod 755 /usr/local/bin/xray-cert-sync.sh
+    chown root:root /usr/local/bin/xray-cert-sync.sh
+
+    cat > /etc/cron.daily/proxy-panel-cert-sync <<'EOF'
+#!/bin/bash
+/usr/local/bin/xray-cert-sync.sh >/dev/null 2>&1 || true
+EOF
+    chmod +x /etc/cron.daily/proxy-panel-cert-sync
+
+    # sudoers-строка (если ещё нет)
+    local sudoers="/etc/sudoers.d/proxypanel-xray-update"
+    if [[ -f "${sudoers}" ]] && ! grep -q "xray-cert-sync.sh" "${sudoers}"; then
+        cp -p "${sudoers}" "${sudoers}.before-cert-bridge" 2>/dev/null || true
+        local panel_user
+        panel_user=$(awk -F'[[:space:]]+' '/NOPASSWD:/ {print $1; exit}' "${sudoers}")
+        if [[ -n "${panel_user}" ]]; then
+            echo "${panel_user} ALL=(root) NOPASSWD: /usr/local/bin/xray-cert-sync.sh" >> "${sudoers}"
+            chmod 440 "${sudoers}"
+            if ! visudo -c -f "${sudoers}" >/dev/null 2>&1; then
+                warn "sudoers после добавления cert-sync невалиден — откат."
+                mv -f "${sudoers}.before-cert-bridge" "${sudoers}"
+            fi
+        fi
+    fi
+    # Первичный синк — вдруг сертификаты уже есть.
+    /usr/local/bin/xray-cert-sync.sh >/dev/null 2>&1 || true
+    info "  ✓ cert-bridge готов"
+}
+
 ensure_panel_workers() {
     # Поднимает gunicorn с 1 до 2 воркеров у уже установленных панелей,
     # чтобы запросы не стояли в очереди (фикс «затупов»). Идемпотентно:
@@ -491,6 +559,7 @@ PYCHECK
 
     ensure_scheduler_unit
     ensure_panel_workers
+    ensure_xray_cert_bridge
 
     info "Запуск сервиса proxy-panel..."
     systemctl start proxy-panel

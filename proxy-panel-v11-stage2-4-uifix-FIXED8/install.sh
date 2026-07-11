@@ -383,6 +383,55 @@ UPDATER
 run chmod 755 /usr/local/bin/xray-update.sh
 run chown root:root /usr/local/bin/xray-update.sh
 
+# ── Cert-bridge: сертификаты Caddy → Xray ────────────────────
+# Xray-инбаунд с TLS (Trojan/VLESS+TLS) не может читать сертификаты Caddy
+# напрямую (600 caddy:caddy). Этот скрипт копирует их в /etc/xray/certs/
+# с правами 640 root:xray. Запускается по cron.daily (продление) и панелью
+# через sudo при создании TLS-инбаунда.
+info "Установка cert-bridge (сертификаты Caddy → Xray)..."
+run mkdir -p /etc/xray/certs
+run chown root:"${XRAY_USER}" /etc/xray/certs
+run chmod 750 /etc/xray/certs
+
+write_file /usr/local/bin/xray-cert-sync.sh <<'CERTSYNC'
+#!/usr/bin/env bash
+# Копирует TLS-сертификаты, выпущенные Caddy (Let's Encrypt), в читаемое
+# Xray место: /etc/xray/certs/<domain>/{cert.pem,key.pem} (640 root:xray).
+set -euo pipefail
+CADDY_CERTS="${CADDY_CERTS_DIR:-/var/lib/caddy/.local/share/caddy/certificates}"
+XRAY_CERTS="${XRAY_CERTS_DIR:-/etc/xray/certs}"
+CERT_GROUP="${XRAY_CERT_GROUP:-xray}"
+[[ -d "$CADDY_CERTS" ]] || { echo "Caddy cert storage не найден: $CADDY_CERTS"; exit 0; }
+mkdir -p "$XRAY_CERTS"
+shopt -s nullglob
+synced=0
+for cadir in "$CADDY_CERTS"/*/; do
+  for domdir in "$cadir"*/; do
+    domain="$(basename "$domdir")"
+    crt="$domdir$domain.crt"; key="$domdir$domain.key"
+    [[ -f "$crt" && -f "$key" ]] || continue
+    dst="$XRAY_CERTS/$domain"; mkdir -p "$dst"
+    if getent group "$CERT_GROUP" >/dev/null 2>&1; then
+      install -m 640 -o root -g "$CERT_GROUP" "$crt" "$dst/cert.pem"
+      install -m 640 -o root -g "$CERT_GROUP" "$key" "$dst/key.pem"
+    else
+      install -m 640 "$crt" "$dst/cert.pem"; install -m 640 "$key" "$dst/key.pem"
+    fi
+    synced=$((synced+1))
+  done
+done
+echo "xray-cert-sync: synced ${synced} cert(s) into ${XRAY_CERTS}"
+CERTSYNC
+run chmod 755 /usr/local/bin/xray-cert-sync.sh
+run chown root:root /usr/local/bin/xray-cert-sync.sh
+
+write_file /etc/cron.daily/proxy-panel-cert-sync <<'EOF'
+#!/bin/bash
+# Ежедневно подхватываем продлённые сертификаты Caddy для Xray-инбаундов.
+/usr/local/bin/xray-cert-sync.sh >/dev/null 2>&1 || true
+EOF
+run chmod +x /etc/cron.daily/proxy-panel-cert-sync
+
 write_file /etc/sudoers.d/proxypanel-xray-update <<SUDOERS
 # Позволяет сервису панели обновлять Xray через веб-интерфейс.
 ${PANEL_USER} ALL=(root) NOPASSWD: /usr/local/bin/xray-update.sh
@@ -393,6 +442,10 @@ ${PANEL_USER} ALL=(root) NOPASSWD: /usr/bin/systemctl restart xray
 ${PANEL_USER} ALL=(root) NOPASSWD: /usr/bin/systemctl restart caddy
 ${PANEL_USER} ALL=(root) NOPASSWD: /usr/bin/systemctl restart proxy-panel
 ${PANEL_USER} ALL=(root) NOPASSWD: /usr/sbin/ufw delete allow 5000/tcp
+# Cert-bridge: панель просит скопировать сертификаты Caddy в читаемое Xray
+# место при создании TLS-инбаунда (Trojan/VLESS+TLS). Скрипт root-owned,
+# без аргументов, только копирует cert/key — менять ничего не может.
+${PANEL_USER} ALL=(root) NOPASSWD: /usr/local/bin/xray-cert-sync.sh
 # Read-only: панель показывает в UI, какие порты открыты в UFW при
 # создании/редактировании инбаунда. Только read-команды, никаких
 # allow/delete — менять файрвол должен админ руками (см. README).
