@@ -17,6 +17,7 @@ from app.core.caddy import apply_caddy_config, get_caddy_status
 from app.core.audit import log_action
 from app.core.input_validators import (
     validate_port, validate_domain, validate_email, validate_enum,
+    validate_dns_server,
 )
 
 bp = Blueprint("system", __name__)
@@ -729,9 +730,16 @@ def restart_caddy():
 ALLOWED_SETTINGS = {
     "panel_domain", "acme_email", "xray_log_level",
     "xray_domain_strategy", "xray_api_port", "server_ip",
+    "xray_dns", "xray_dns_query_strategy",
 }
 
-XRAY_SETTINGS = {"xray_log_level", "xray_domain_strategy", "xray_api_port"}
+XRAY_SETTINGS = {
+    "xray_log_level", "xray_domain_strategy", "xray_api_port",
+    "xray_dns", "xray_dns_query_strategy",
+}
+
+# Допустимые значения queryStrategy в секции dns Xray.
+XRAY_DNS_STRATEGIES = frozenset({"UseIP", "UseIPv4", "UseIPv6"})
 
 # Допустимые значения log-level в Xray (`log.loglevel`).
 XRAY_LOG_LEVELS = frozenset({"debug", "info", "warning", "error", "none"})
@@ -798,6 +806,21 @@ def _validate_setting(key: str, value) -> tuple[bool, str | None, object]:
                 f"Выберите другой порт для xray_api_port."
             ), None
         return True, None, str(port)
+    if key == "xray_dns":
+        # DoH-URL или обычный DNS IP/hostname; пусто — DNS не задан.
+        if not value:
+            return True, None, ""
+        ok, err = validate_dns_server(value)
+        if not ok:
+            return False, err, None
+        return True, None, str(value).strip()
+    if key == "xray_dns_query_strategy":
+        if not value:
+            return True, None, "UseIP"
+        ok, err = validate_enum(value, XRAY_DNS_STRATEGIES, label="xray_dns_query_strategy")
+        if not ok:
+            return False, err, None
+        return True, None, value
     if key == "server_ip":
         # Этот ключ — display-only (показывается в подписке/UI). Если
         # юзер хочет руками задать «логичный» IP отличный от detected —

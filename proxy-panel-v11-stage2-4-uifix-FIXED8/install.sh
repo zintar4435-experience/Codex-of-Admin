@@ -383,6 +383,55 @@ UPDATER
 run chmod 755 /usr/local/bin/xray-update.sh
 run chown root:root /usr/local/bin/xray-update.sh
 
+# ── Cert-bridge: сертификаты Caddy → Xray ────────────────────
+# Xray-инбаунд с TLS (Trojan/VLESS+TLS) не может читать сертификаты Caddy
+# напрямую (600 caddy:caddy). Этот скрипт копирует их в /etc/xray/certs/
+# с правами 640 root:xray. Запускается по cron.daily (продление) и панелью
+# через sudo при создании TLS-инбаунда.
+info "Установка cert-bridge (сертификаты Caddy → Xray)..."
+run mkdir -p /etc/xray/certs
+run chown root:"${XRAY_USER}" /etc/xray/certs
+run chmod 750 /etc/xray/certs
+
+write_file /usr/local/bin/xray-cert-sync.sh <<'CERTSYNC'
+#!/usr/bin/env bash
+# Копирует TLS-сертификаты, выпущенные Caddy (Let's Encrypt), в читаемое
+# Xray место: /etc/xray/certs/<domain>/{cert.pem,key.pem} (640 root:xray).
+set -euo pipefail
+CADDY_CERTS="${CADDY_CERTS_DIR:-/var/lib/caddy/.local/share/caddy/certificates}"
+XRAY_CERTS="${XRAY_CERTS_DIR:-/etc/xray/certs}"
+CERT_GROUP="${XRAY_CERT_GROUP:-xray}"
+[[ -d "$CADDY_CERTS" ]] || { echo "Caddy cert storage не найден: $CADDY_CERTS"; exit 0; }
+mkdir -p "$XRAY_CERTS"
+shopt -s nullglob
+synced=0
+for cadir in "$CADDY_CERTS"/*/; do
+  for domdir in "$cadir"*/; do
+    domain="$(basename "$domdir")"
+    crt="$domdir$domain.crt"; key="$domdir$domain.key"
+    [[ -f "$crt" && -f "$key" ]] || continue
+    dst="$XRAY_CERTS/$domain"; mkdir -p "$dst"
+    if getent group "$CERT_GROUP" >/dev/null 2>&1; then
+      install -m 640 -o root -g "$CERT_GROUP" "$crt" "$dst/cert.pem"
+      install -m 640 -o root -g "$CERT_GROUP" "$key" "$dst/key.pem"
+    else
+      install -m 640 "$crt" "$dst/cert.pem"; install -m 640 "$key" "$dst/key.pem"
+    fi
+    synced=$((synced+1))
+  done
+done
+echo "xray-cert-sync: synced ${synced} cert(s) into ${XRAY_CERTS}"
+CERTSYNC
+run chmod 755 /usr/local/bin/xray-cert-sync.sh
+run chown root:root /usr/local/bin/xray-cert-sync.sh
+
+write_file /etc/cron.daily/proxy-panel-cert-sync <<'EOF'
+#!/bin/bash
+# Ежедневно подхватываем продлённые сертификаты Caddy для Xray-инбаундов.
+/usr/local/bin/xray-cert-sync.sh >/dev/null 2>&1 || true
+EOF
+run chmod +x /etc/cron.daily/proxy-panel-cert-sync
+
 write_file /etc/sudoers.d/proxypanel-xray-update <<SUDOERS
 # Позволяет сервису панели обновлять Xray через веб-интерфейс.
 ${PANEL_USER} ALL=(root) NOPASSWD: /usr/local/bin/xray-update.sh
@@ -393,6 +442,10 @@ ${PANEL_USER} ALL=(root) NOPASSWD: /usr/bin/systemctl restart xray
 ${PANEL_USER} ALL=(root) NOPASSWD: /usr/bin/systemctl restart caddy
 ${PANEL_USER} ALL=(root) NOPASSWD: /usr/bin/systemctl restart proxy-panel
 ${PANEL_USER} ALL=(root) NOPASSWD: /usr/sbin/ufw delete allow 5000/tcp
+# Cert-bridge: панель просит скопировать сертификаты Caddy в читаемое Xray
+# место при создании TLS-инбаунда (Trojan/VLESS+TLS). Скрипт root-owned,
+# без аргументов, только копирует cert/key — менять ничего не может.
+${PANEL_USER} ALL=(root) NOPASSWD: /usr/local/bin/xray-cert-sync.sh
 # Read-only: панель показывает в UI, какие порты открыты в UFW при
 # создании/редактировании инбаунда. Только read-команды, никаких
 # allow/delete — менять файрвол должен админ руками (см. README).
@@ -402,6 +455,102 @@ SUDOERS
 run chmod 440 /etc/sudoers.d/proxypanel-xray-update
 run visudo -c -f /etc/sudoers.d/proxypanel-xray-update \
     || { rm -f /etc/sudoers.d/proxypanel-xray-update; error "Ошибка синтаксиса sudoers-файла"; }
+
+# ── Сторож (watchdog): авто-восстановление панели ────────────
+# Раз в 2 минуты проверяет здоровье сервисов и панели. При реальном сбое
+# (сервис упал, gunicorn завис, Caddy потерял runtime-конфиг в HTTPS-режиме)
+# перезапускает proxy-panel — панель заново пушит конфиг в Caddy. Есть
+# cooldown и перепроверки, чтобы не зациклиться и не реагировать на «моргание».
+info "Установка сторожа (авто-восстановление)..."
+write_file /usr/local/bin/proxy-panel-watchdog.sh <<'WATCHDOG'
+#!/usr/bin/env bash
+# Сторож панели: раз в ~2 минуты (cron.d) проверяет здоровье и при реальном
+# сбое восстанавливает. Запускается root'ом. Команды переопределяемы env
+# (для тестов). Не трогает ничего, если всё в порядке.
+set -uo pipefail
+
+SYSTEMCTL="${WD_SYSTEMCTL:-systemctl}"
+CURL="${WD_CURL:-curl}"
+STATE="${WD_STATE:-/var/lib/proxy-panel/watchdog.state}"
+ENV_FILE="${WD_ENV_FILE:-/opt/proxy-panel/instance/.env}"
+LOG="${WD_LOG:-/var/log/proxy-panel-watchdog.log}"
+COOLDOWN="${WD_COOLDOWN:-300}"
+HEALTH_URL="http://127.0.0.1:5000/api/system/health"
+CADDY_CFG_URL="http://127.0.0.1:2019/config/"
+
+log(){ echo "$(date -Is) $*" >> "$LOG" 2>/dev/null || true; command -v logger >/dev/null 2>&1 && logger -t proxy-panel-watchdog "$*" || true; }
+mkdir -p "$(dirname "$STATE")" 2>/dev/null || true
+
+now=$(date +%s)
+last=0; [[ -f "$STATE" ]] && last=$(cat "$STATE" 2>/dev/null || echo 0)
+cooldown_active(){ (( now - last < COOLDOWN )); }
+
+restart_panel(){  # минимальное восстановление: панель заново пушит конфиг в Caddy
+  if cooldown_active; then log "проблема [$1], но cooldown ($(( COOLDOWN-(now-last) ))с) — пропуск"; return 1; fi
+  echo "$now" > "$STATE"
+  log "ВОССТАНОВЛЕНИЕ [$1]: restart proxy-panel"
+  $SYSTEMCTL restart proxy-panel 2>/dev/null || true
+  $SYSTEMCTL start proxy-panel-scheduler 2>/dev/null || true
+  return 0
+}
+
+svc_active(){ $SYSTEMCTL is-active "$1" --quiet 2>/dev/null; }
+svc_enabled(){ $SYSTEMCTL is-enabled "$1" --quiet 2>/dev/null; }
+panel_healthy(){ $CURL -m 5 -sf "$HEALTH_URL" >/dev/null 2>&1; }
+
+# 1) Включённый сервис не активен → поднять (с перепроверкой на «моргание»).
+for svc in xray caddy proxy-panel proxy-panel-scheduler; do
+  if svc_enabled "$svc" && ! svc_active "$svc"; then
+    sleep 6
+    svc_active "$svc" && continue     # само поднялось — это было «моргание»
+    if cooldown_active; then log "$svc не активен, но cooldown — пропуск"; exit 0; fi
+    echo "$now" > "$STATE"
+    log "ВОССТАНОВЛЕНИЕ: сервис $svc не активен → start"
+    $SYSTEMCTL start "$svc" 2>/dev/null || true
+    exit 0
+  fi
+done
+
+# 2) Панель не отвечает локально (gunicorn завис) → restart panel.
+if ! panel_healthy; then
+  sleep 8
+  panel_healthy && exit 0            # транзиентно — игнор
+  restart_panel "панель не отвечает /health"; exit 0
+fi
+
+# 3) HTTPS-режим, но Caddy потерял runtime-конфиг (нет https-routes) → re-push.
+https_on="false"
+[[ -f "$ENV_FILE" ]] && grep -qi '^HTTPS_ENABLED=true' "$ENV_FILE" && https_on="true"
+if [[ "$https_on" == "true" ]]; then
+  cfg=$($CURL -m 5 -s "$CADDY_CFG_URL" 2>/dev/null || echo "")
+  if [[ -n "$cfg" ]]; then
+    routes="?"
+    if command -v jq >/dev/null 2>&1; then
+      routes=$(echo "$cfg" | jq -r '((.apps.http.servers.https.routes)//[])|length' 2>/dev/null || echo "?")
+    else
+      echo "$cfg" | grep -q '"routes"' && routes=1 || routes=0
+    fi
+    if [[ "$routes" == "0" ]]; then
+      sleep 6
+      cfg2=$($CURL -m 5 -s "$CADDY_CFG_URL" 2>/dev/null || echo "")
+      echo "$cfg2" | grep -q '"routes"' && exit 0   # появилось — игнор
+      restart_panel "Caddy без https-routes (потерян конфиг)"; exit 0
+    fi
+  fi
+fi
+exit 0
+WATCHDOG
+run chmod 755 /usr/local/bin/proxy-panel-watchdog.sh
+run chown root:root /usr/local/bin/proxy-panel-watchdog.sh
+
+write_file /etc/cron.d/proxy-panel-watchdog <<'EOF'
+# Сторож панели: авто-восстановление при сбоях. Каждые 2 минуты, от root.
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+*/2 * * * * root /usr/local/bin/proxy-panel-watchdog.sh >/dev/null 2>&1
+EOF
+run chmod 644 /etc/cron.d/proxy-panel-watchdog
+run chown root:root /etc/cron.d/proxy-panel-watchdog
 
 # ── 5. Панель ────────────────────────────────────────────────
 info "Установка ProxyPanel..."

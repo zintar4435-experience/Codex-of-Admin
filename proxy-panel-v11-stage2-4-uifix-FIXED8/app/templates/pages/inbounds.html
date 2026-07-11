@@ -173,8 +173,9 @@
           <input type="checkbox" id="f-tls" onchange="onTlsToggle()"> TLS
         </label>
         <div class="form-text">
-          Для Xray-инбаундов укажите путь к сертификату вручную через настройки.
-          Auto-ACME пока работает только для NaiveProxy (через Caddy).
+          Сертификат берётся автоматически: укажите <b>домен</b> (поле ниже),
+          для которого Caddy уже выпустил сертификат (панельный или naive-домен) —
+          он подставится сам. Нужен для Trojan и VLESS+TLS.
           <br><b>TLS и Reality взаимоисключающие</b> — включение TLS скроет
           Reality-секцию и наоборот.
         </div>
@@ -806,7 +807,7 @@ const TEMPLATES = {
 // Пока в проде проверены только VLESS (вкл. Reality) и NaiveProxy —
 // остальные протоколы временно скрыты из интерфейса. Чтобы вернуть
 // протокол, когда он заработает, просто добавьте его сюда (одна строка).
-const ENABLED_PROTOCOLS = ['vless', 'naive'];
+const ENABLED_PROTOCOLS = ['vless', 'naive', 'trojan'];
 
 function applyProtocolVisibility() {
   // Опции в селекте «Протокол» (Xray-инбаунд).

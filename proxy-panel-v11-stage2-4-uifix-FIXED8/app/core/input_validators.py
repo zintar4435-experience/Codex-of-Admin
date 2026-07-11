@@ -288,6 +288,45 @@ def validate_hostname_or_ip(value) -> tuple[bool, str | None]:
 
 
 # ─────────────────────────────────────────────────────────────────────
+# DNS-сервер (настройка xray_dns): DoH-URL или обычный IP/hostname
+# ─────────────────────────────────────────────────────────────────────
+
+_DOH_RE = re.compile(r"^https://[A-Za-z0-9.\-\[\]:]+(/[^\s]*)?$")
+
+
+def validate_dns_server(value) -> tuple[bool, str | None]:
+    """
+    Допустимо:
+      - пусто (DNS не задан — Xray резолвит системным резолвером);
+      - DoH-URL: https://1.1.1.1/dns-query (рекомендуется IP-форма — не
+        требует bootstrap-резолва самого DoH-домена);
+      - обычный DNS: IP или hostname (например, 1.1.1.1).
+    Прочие схемы (tcp://, quic:// и т.п.) пока не поддерживаем — сообщаем.
+    """
+    if value is None or value == "":
+        return True, None
+    if not isinstance(value, str):
+        return False, "DNS-сервер должен быть строкой"
+    v = value.strip()
+    if not v:
+        return True, None
+    if "://" in v:
+        if not v.lower().startswith("https://"):
+            return False, (
+                "Поддерживается только DoH (https://…). "
+                "Пример: https://1.1.1.1/dns-query"
+            )
+        if not _DOH_RE.match(v):
+            return False, (
+                f"Некорректный DoH-URL: {value!r}. "
+                f"Пример: https://1.1.1.1/dns-query"
+            )
+        return True, None
+    # Без схемы — обычный DNS-сервер: IP или hostname.
+    return validate_hostname_or_ip(v)
+
+
+# ─────────────────────────────────────────────────────────────────────
 # Enum validator (для xray_log_level, xray_domain_strategy, протоколов)
 # ─────────────────────────────────────────────────────────────────────
 

@@ -397,6 +397,22 @@ def _build_direct_outbound() -> dict:
     return {"tag": "direct", "protocol": "freedom", "settings": {}}
 
 
+def _build_dns_section() -> dict | None:
+    """Секция dns для Xray из настроек панели.
+
+    xray_dns — DoH-URL (https://1.1.1.1/dns-query) или IP обычного DNS.
+    Пусто → секции нет (Xray резолвит через системный DNS, как раньше).
+    queryStrategy — UseIP / UseIPv4 / UseIPv6.
+    """
+    server = (Setting.get("xray_dns", "") or "").strip()
+    if not server:
+        return None
+    strategy = (Setting.get("xray_dns_query_strategy", "UseIP") or "UseIP").strip()
+    if strategy not in ("UseIP", "UseIPv4", "UseIPv6"):
+        strategy = "UseIP"
+    return {"servers": [server], "queryStrategy": strategy}
+
+
 def _build_block_outbound() -> dict:
     return {"tag": "block", "protocol": "blackhole", "settings": {}}
 
@@ -674,6 +690,19 @@ def generate_xray_config() -> dict:
             "rules": xray_routing_rules,
         },
     }
+
+    # DNS (DoH). Если настроен — добавляем секцию dns и заставляем direct-
+    # outbound резолвить домены через встроенный DNS (DoH), а не через
+    # системный резолвер ОС. Иначе реальные DNS-запросы утекали бы мимо
+    # туннеля (DNS leak). При пустой настройке поведение не меняется.
+    dns_section = _build_dns_section()
+    if dns_section:
+        config["dns"] = dns_section
+        strategy = dns_section.get("queryStrategy", "UseIP")
+        for ob in config["outbounds"]:
+            if ob.get("tag") == "direct":
+                ob.setdefault("settings", {})["domainStrategy"] = strategy
+                break
 
     return config
 

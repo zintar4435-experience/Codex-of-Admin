@@ -24,7 +24,7 @@ NAIVE_PROTOCOLS = {"naive"}
 # заблокированы на создание здесь (вторая линия для прямых вызовов API).
 # Чтобы вернуть протокол, когда он заработает, добавьте его сюда (одна строка).
 # Существующих инбаундов это НЕ касается — редактирование/применение работают.
-ENABLED_XRAY_PROTOCOLS = {"vless"}
+ENABLED_XRAY_PROTOCOLS = {"vless", "trojan"}
 VALID_TRANSPORTS = {"tcp", "ws", "grpc", "kcp", "h2", "httpupgrade", "splithttp"}
 
 XRAY_BIN = "/usr/local/bin/xray"
@@ -464,12 +464,24 @@ def create_inbound():
     # security и не требует cert/key файлов — поля tls_cert_path/key_path
     # просто игнорируются генератором конфига в _build_tls_settings).
     tls_enabled = bool(data.get("tls_enabled", False))
+    cert_path = data.get("tls_cert_path")
+    key_path = data.get("tls_key_path")
     if engine == "xray" and tls_enabled:
-        ok, err = validate_tls_paths(
-            data.get("tls_cert_path"), data.get("tls_key_path"),
-        )
+        # Cert-bridge: если пути не заданы вручную, но есть домен — берём
+        # сертификат, который Caddy уже выпустил для этого домена (копируется
+        # в /etc/xray/certs/<domain>/ через xray-cert-sync). Иначе — ручные пути.
+        domain = (data.get("domain") or "").strip()
+        if not (cert_path or key_path) and domain:
+            from app.core.certs import trigger_cert_sync, xray_cert_paths
+            trigger_cert_sync()
+            cert_path, key_path = xray_cert_paths(domain)
+        ok, err = validate_tls_paths(cert_path, key_path)
         if not ok:
-            return jsonify({"error": err}), 400
+            return jsonify({"error": (
+                f"{err}. Для TLS нужен сертификат: укажите домен, для которого "
+                f"Caddy уже выпустил сертификат (панельный/naive), либо задайте "
+                f"пути к cert/key вручную."
+            )}), 400
 
     # Нормализация transport_config для Reality:
     # UI скрывает поле reality_dest в shared-443 (порт 443) — там backend
@@ -503,8 +515,8 @@ def create_inbound():
         port=port_normalized,
         domain=data.get("domain"),
         tls_enabled=tls_enabled,
-        tls_cert_path=data.get("tls_cert_path"),
-        tls_key_path=data.get("tls_key_path"),
+        tls_cert_path=cert_path,
+        tls_key_path=key_path,
         # tls_acme: пока не реализован экспорт сертификатов Caddy в путь,
         # на который смотрит Xray (/etc/ssl/caddy/...). Поле в схеме остаётся
         # для будущей реализации через Caddy events; на запись принудительно
@@ -618,9 +630,20 @@ def update_inbound(ib_id):
             if merged_tls_enabled:
                 merged_cert = data.get("tls_cert_path", ib.tls_cert_path)
                 merged_key = data.get("tls_key_path", ib.tls_key_path)
+                # Cert-bridge (как в create): если путей нет, но есть домен —
+                # берём сертификат Caddy для этого домена.
+                merged_domain = (data.get("domain", ib.domain) or "").strip()
+                if not (merged_cert or merged_key) and merged_domain:
+                    from app.core.certs import trigger_cert_sync, xray_cert_paths
+                    trigger_cert_sync()
+                    merged_cert, merged_key = xray_cert_paths(merged_domain)
+                    data["tls_cert_path"] = merged_cert
+                    data["tls_key_path"] = merged_key
                 ok, err = validate_tls_paths(merged_cert, merged_key)
                 if not ok:
-                    return jsonify({"error": err}), 400
+                    return jsonify({"error": (
+                        f"{err}. Укажите домен с сертификатом Caddy либо пути вручную."
+                    )}), 400
 
     for field in updatable:
         if field in data:

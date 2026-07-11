@@ -364,6 +364,32 @@
         <div class="form-text">Локальный порт для сбора статистики. Менять не нужно.</div>
       </div>
     </div>
+
+    <!-- DNS (DoH): резолвинг доменов через доверенный DNS-over-HTTPS —
+         реальные DNS-запросы идут через туннель, а не мимо (анти-leak),
+         плюс обход DNS-блокировок провайдера. Пусто = системный DNS. -->
+    <div class="form-group" style="margin-top:6px">
+      <label class="form-label">DNS-резолвер (DoH)</label>
+      <input type="text" class="form-control" id="c-xray-dns"
+             placeholder="Пусто = системный DNS. Пример: https://1.1.1.1/dns-query">
+      <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px">
+        <button type="button" class="btn btn-outline btn-sm" onclick="setDns('')">Выкл</button>
+        <button type="button" class="btn btn-outline btn-sm" onclick="setDns('https://1.1.1.1/dns-query')">Cloudflare</button>
+        <button type="button" class="btn btn-outline btn-sm" onclick="setDns('https://8.8.8.8/dns-query')">Google</button>
+        <button type="button" class="btn btn-outline btn-sm" onclick="setDns('https://9.9.9.9/dns-query')">Quad9</button>
+        <button type="button" class="btn btn-outline btn-sm" onclick="setDns('https://94.140.14.14/dns-query')">AdGuard (реклама)</button>
+      </div>
+      <div class="form-text">DoH-URL (рекомендуется IP-форма — не требует bootstrap) или IP обычного DNS. Пусто — как раньше, системный DNS сервера.</div>
+    </div>
+    <div class="form-group" style="max-width:320px">
+      <label class="form-label">Query strategy</label>
+      <select class="form-control" id="c-xray-dns-strategy">
+        <option value="UseIP">UseIP — IPv4 + IPv6</option>
+        <option value="UseIPv4">UseIPv4 — только IPv4</option>
+        <option value="UseIPv6">UseIPv6 — только IPv6</option>
+      </select>
+      <div class="form-text">Как резолвить домены. UseIPv4 полезно, если у сервера нет рабочего IPv6.</div>
+    </div>
   </div>
 
   <!-- Внешний вид: переключатель темы оформления.
@@ -726,6 +752,8 @@ async function loadConfig() {
     document.getElementById('c-xray-log').value       = s.xray_log_level || 'warning';
     document.getElementById('c-xray-strategy').value  = s.xray_domain_strategy || 'IPIfNonMatch';
     document.getElementById('c-xray-port').value      = s.xray_api_port || '10085';
+    document.getElementById('c-xray-dns').value          = s.xray_dns || '';
+    document.getElementById('c-xray-dns-strategy').value = s.xray_dns_query_strategy || 'UseIP';
 
     // Снимок, чтобы после сохранения понять, какие сервисы рестартить
     configSnapshot = {
@@ -822,6 +850,9 @@ async function twofaDisable() {
   } catch (e) { toast(e.message, 'error'); }
 }
 
+// Пресеты DoH заполняют поле DNS-резолвера.
+function setDns(v) { document.getElementById('c-xray-dns').value = v; }
+
 async function saveConfig() {
   const payload = {
     panel_domain:         document.getElementById('c-panel-domain').value.trim(),
@@ -830,6 +861,8 @@ async function saveConfig() {
     xray_log_level:       document.getElementById('c-xray-log').value,
     xray_domain_strategy: document.getElementById('c-xray-strategy').value,
     xray_api_port:        document.getElementById('c-xray-port').value,
+    xray_dns:                document.getElementById('c-xray-dns').value.trim(),
+    xray_dns_query_strategy: document.getElementById('c-xray-dns-strategy').value,
   };
 
   // Caddy перезапускаем только если действительно поменялся домен или ACME-email.
