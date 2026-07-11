@@ -173,10 +173,24 @@ def create_app(config_overrides: dict = None) -> Flask:
     app.register_blueprint(views_bp)
 
     # --- DB init ---
+    # ВАЖНО: create_app выполняется ПАРАЛЛЕЛЬНО несколькими процессами
+    # (2 воркера gunicorn + шедулер). Без сериализации два процесса
+    # одновременно видят «настройки X нет», оба вставляют — второй падает
+    # на UNIQUE constraint, воркер умирает, systemd-старт фейлится
+    # (наблюдалось вживую на xray_dns при обновлении). Файловый замок
+    # (flock) пускает в инициализацию по одному; остальные ждут и видят
+    # уже готовую БД. Замок локальный для машины — ровно наш случай.
+    import fcntl
+    _init_lock_path = os.path.join(app.instance_path, ".db-init.lock")
     with app.app_context():
-        db.create_all()
-        _ensure_schema()      # добавление недостающих колонок без Alembic
-        _seed_defaults()
+        with open(_init_lock_path, "w") as _lk:
+            fcntl.flock(_lk, fcntl.LOCK_EX)
+            try:
+                db.create_all()
+                _ensure_schema()      # добавление недостающих колонок без Alembic
+                _seed_defaults()
+            finally:
+                fcntl.flock(_lk, fcntl.LOCK_UN)
 
     # Шедулер запускается отдельным systemd-юнитом proxy-panel-scheduler.service.
     # См. app/core/scheduler.py:run_blocking — внутри веб-приложения он не нужен.
@@ -444,7 +458,14 @@ def _ensure_schema():
 
 
 def _seed_defaults():
-    """Create default settings if they don't exist."""
+    """Create default settings if they don't exist.
+
+    Вторая линия защиты от гонки параллельных процессов (первая — flock в
+    create_app): каждый ключ коммитится отдельно, и если параллельный процесс
+    успел вставить его первым — ловим IntegrityError, откатываемся и идём
+    дальше. Настройка в БД уже есть, что нам и нужно.
+    """
+    from sqlalchemy.exc import IntegrityError
     from app.models import Setting
     defaults = {
         "xray_api_port": "10085",
@@ -457,5 +478,8 @@ def _seed_defaults():
     }
     for key, value in defaults.items():
         if db.session.get(Setting, key) is None:
-            db.session.add(Setting(key=key, value=value))
-    db.session.commit()
+            try:
+                db.session.add(Setting(key=key, value=value))
+                db.session.commit()
+            except IntegrityError:
+                db.session.rollback()
