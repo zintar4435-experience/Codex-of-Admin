@@ -13,7 +13,8 @@
       try {
         var t = localStorage.getItem('panel-theme') || 'glass';
         if (t === 'codex') t = 'codex-red';   // старая тема codex переименована
-        var valid = ['slate', 'codex-red', 'codex-green', 'glass', 'graphite'];
+        var valid = ['slate', 'codex-red', 'codex-green', 'glass', 'graphite',
+                     'term-phosphor', 'term-red', 'term-ochre'];
         if (valid.indexOf(t) === -1) t = 'glass';
         if (t !== 'slate') {
           document.documentElement.setAttribute('data-theme', t);
@@ -887,6 +888,269 @@
     [data-theme="glass"] .sidebar-logo { border-bottom-color: var(--border); }
     [data-theme="glass"] .sidebar-footer { border-top-color: var(--border); }
 
+    /* ── Темы TERM-PHOSPHOR / TERM-RED / TERM-OCHRE — «хакерский терминал»
+       (поставка codex-panel-terminal-2026.07.14 rev 2): моно-шрифт везде,
+       ASCII-маркеры и брекеты, срезы углов с планкой, жирная линия слева,
+       шевроны. Иконки меню — текстовые глифы по data-icon (не SVG).
+       Перф §4: статично, фон НЕ fixed, без blur/glow/анимаций.
+       Селекторы поставки адаптированы к вёрстке: .page-title → .topbar h1,
+       .sidebar-logo → .brand-text span, шапка-«окно» → .card-header
+       (в ней живут кнопки; отриц. поля на .card-title ломали бы flex). ── */
+    [data-theme="term-phosphor"] {
+      --bg: #040704; --surface: #071009; --surface2: #0B170D;
+      --border: rgba(72,255,133,0.30); --border-mute: rgba(72,255,133,0.12);
+      --border-ink: #1E4A2C;
+      --accent: #48FF85; --accent-hi: #7BFFA8; --accent2: #35E0FF;
+      --on-ink: #04120A;
+      --danger: #FF3B57; --warn: #D9A95C; --info: #35E0FF;
+      --text: #C9E8CF; --text-dim: #7FA88A; --text-mute: #4B6B54; --text-bright: #EFFFF2;
+      --ok: #48FF85; --ok-deep: #2FCC66; --cta-ink: #04120A;
+      --code-bg: #030503;
+      --scan-rgb: 72,255,133; --scan-a: 0.028;
+      --bg-grad-0: #071009; --bg-grad-1: #030503;
+    }
+    [data-theme="term-red"] {
+      --bg: #0C0405; --surface: #140709; --surface2: #1D0A0E;
+      --border: rgba(255,64,90,0.32); --border-mute: rgba(255,64,90,0.12);
+      --border-ink: #57222B;
+      --accent: #FF405A; --accent-hi: #FF6E82; --accent2: #35E0FF;
+      --on-ink: #16040A;
+      --danger: #FF6A3D; --warn: #D9A95C; --info: #35E0FF;
+      --text: #E4D2D5; --text-dim: #A38288; --text-mute: #67494F; --text-bright: #FBF1F2;
+      --ok: #3DF08C; --ok-deep: #28C46E; --cta-ink: #04150B;
+      --code-bg: #080304;
+      --scan-rgb: 255,64,90; --scan-a: 0.025;
+      --bg-grad-0: #140709; --bg-grad-1: #080304;
+    }
+    [data-theme="term-ochre"] {
+      --bg: #0A0803; --surface: #121006; --surface2: #191507;
+      --border: rgba(200,134,42,0.32); --border-mute: rgba(200,134,42,0.13);
+      --border-ink: #4E3D18;
+      --accent: #C8862A; --accent-hi: #E0A648; --accent2: #35E0FF;
+      --on-ink: #170F03;
+      --danger: #E0554F; --warn: #C8862A; --info: #35E0FF;
+      --text: #E2D8C4; --text-dim: #A3926F; --text-mute: #665B43; --text-bright: #F8F3E8;
+      --ok: #7FD98A; --ok-deep: #5CB86A; --cta-ink: #0A1A0D;
+      --code-bg: #070502;
+      --scan-rgb: 200,134,42; --scan-a: 0.03;
+      --bg-grad-0: #121006; --bg-grad-1: #070502;
+    }
+    /* Фон: radial + сканлайны 4px; весь UI — моноширинный */
+    [data-theme^="term"] body {
+      background-color: var(--bg);
+      background-image:
+        repeating-linear-gradient(180deg, rgba(var(--scan-rgb), var(--scan-a)) 0 1px, transparent 1px 4px),
+        radial-gradient(130% 100% at 50% 0%, var(--bg-grad-0) 0%, var(--bg-grad-1) 70%);
+      background-repeat: repeat, no-repeat;
+      color: var(--text);
+      font-family: 'JetBrains Mono', 'Cascadia Code', ui-monospace, Menlo, monospace;
+    }
+    /* Сайдбар / топбар */
+    [data-theme^="term"] .sidebar,
+    [data-theme^="term"] .topbar { background: var(--surface); border-color: var(--border); }
+    [data-theme^="term"] .sidebar { position: relative; }
+    [data-theme^="term"] .sidebar::after { /* шевроны-лесенка внизу */
+      content: "›››"; position: absolute; left: 12px; bottom: 8px;
+      font-size: 14px; font-weight: 700; letter-spacing: 0.3em;
+      color: var(--accent); opacity: 0.55; pointer-events: none;
+    }
+    [data-theme^="term"] .topbar { border-bottom-style: dashed; position: relative; }
+    [data-theme^="term"] .topbar::after { /* сегментный акцент-подчерк */
+      content: ""; position: absolute; left: 0; bottom: -1px; width: 150px; height: 3px;
+      background: linear-gradient(90deg, var(--accent) 0 90px, transparent 90px 100px, var(--accent) 100px 120px, transparent 120px);
+    }
+    [data-theme^="term"] .brand-text span { color: var(--accent); text-transform: uppercase; letter-spacing: 0.1em; }
+    [data-theme^="term"] .brand-text span::before { content: "root@"; color: var(--text-mute); text-transform: lowercase; font-weight: 500; }
+    /* Секции меню — ASCII-линейка */
+    [data-theme^="term"] .nav-section { color: var(--text-mute); letter-spacing: 0.1em; text-transform: lowercase; }
+    [data-theme^="term"] .nav-section::before { content: "──[ "; }
+    [data-theme^="term"] .nav-section::after { content: " ]──────"; }
+    /* Пункты меню: bi-иконки прячем, глиф из ascii-icons.json по data-icon.
+       Глиф «[/]» для split — дорисован при интеграции (в JSON его нет). */
+    [data-theme^="term"] .nav-link .bi { display: none; }
+    [data-theme^="term"] .nav-link { color: var(--text-dim); border-left: none; border-radius: 0; }
+    [data-theme^="term"] .nav-link::before { font-weight: 700; color: var(--text-mute); margin-right: 8px; }
+    [data-theme^="term"] .nav-link[data-icon="dashboard"]::before { content: ">_"; }
+    [data-theme^="term"] .nav-link[data-icon="inbounds"]::before  { content: "[=]"; }
+    [data-theme^="term"] .nav-link[data-icon="clients"]::before   { content: "[@]"; }
+    [data-theme^="term"] .nav-link[data-icon="routing"]::before   { content: "::"; }
+    [data-theme^="term"] .nav-link[data-icon="security"]::before  { content: "[#]"; }
+    [data-theme^="term"] .nav-link[data-icon="split"]::before     { content: "[/]"; }
+    [data-theme^="term"] .nav-link[data-icon="server"]::before    { content: "[~]"; }
+    [data-theme^="term"] .nav-link:hover { color: var(--text); background: var(--surface2); }
+    [data-theme^="term"] .nav-link.active {
+      color: var(--on-ink); background: var(--accent); font-weight: 700;
+      clip-path: polygon(0 0, calc(100% - 11px) 0, 100% 11px, 100% 100%, 0 100%);
+      padding-right: 16px;
+    }
+    [data-theme^="term"] .nav-link.active::before { color: var(--on-ink); }
+    /* .nav-link — flex, поэтому курсор прижимаем margin-auto (не float) */
+    [data-theme^="term"] .nav-link.active::after { content: "▌"; margin-left: auto; }
+    /* Статус-точки → текстовые маркеры (T2: классы ставит updateStatusBar) */
+    [data-theme^="term"] .dot-green, [data-theme^="term"] .dot-red, [data-theme^="term"] .dot-grey { display: none; }
+    [data-theme^="term"] .status-ok::after   { content: " [ok]"; color: var(--ok); font-weight: 700; }
+    [data-theme^="term"] .status-fail::after { content: " [!!]"; color: var(--danger); font-weight: 700; }
+    [data-theme^="term"] .status-off::after  { content: " [--]"; color: var(--text-mute); font-weight: 700; }
+    [data-theme^="term"] .badge-status {
+      color: var(--accent2); background: transparent; border: 1px solid var(--border-mute);
+      padding: 2px 16px; border-radius: 0;
+      clip-path: polygon(9px 0, 100% 0, 100% calc(100% - 9px), calc(100% - 9px) 100%, 0 100%, 0 9px);
+    }
+    [data-theme^="term"] .badge-status::before { content: "ssh:// "; color: var(--text-mute); }
+    /* Заголовок страницы — команда с промптом */
+    [data-theme^="term"] .topbar h1 { color: var(--text-bright); font-size: 14px; text-transform: lowercase; }
+    [data-theme^="term"] .topbar h1::before { content: "$ codex --"; color: var(--ok); }
+    [data-theme^="term"] .topbar h1::after { content: " ▌"; color: var(--accent); }
+    /* Карточки — «окна»: срез 22px, планка по фаске, линия 5px, шевроны */
+    [data-theme^="term"] .card, [data-theme^="term"] .stat-card {
+      position: relative;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-left: 5px solid var(--accent);
+      border-radius: 0;
+      box-shadow: none;
+      filter: none;
+      clip-path: polygon(0 0, calc(100% - 22px) 0, 100% 22px, 100% 100%, 0 100%);
+      padding-bottom: 20px;                    /* запас под шевроны ›› */
+    }
+    [data-theme^="term"] .card::before, [data-theme^="term"] .stat-card::before { /* планка по фаске */
+      content: ""; position: absolute; top: 0; right: 0; width: 22px; height: 22px; pointer-events: none; z-index: 1;
+      background: linear-gradient(to top right, transparent calc(50% - 5px), var(--accent) calc(50% - 5px), var(--accent) 50%, transparent 50%);
+    }
+    [data-theme^="term"] .card::after { /* шевроны низ-право */
+      content: "››"; position: absolute; right: 8px; bottom: 2px;
+      font-size: 12px; font-weight: 700; letter-spacing: 0.15em;
+      color: var(--accent); opacity: 0.65; pointer-events: none;
+    }
+    /* Шапка-«окно»: на .card-header (flex с кнопками), на всю ширину
+       карточки (компенсация паддинга .card = 20px 24px); правый отступ
+       26px уводит контент из-под среза. */
+    [data-theme^="term"] .card-header {
+      margin: -20px -24px 16px;
+      padding: 8px 26px 8px 12px;
+      border-bottom: 1px solid var(--border);
+      background: var(--surface2);
+    }
+    [data-theme^="term"] .card-title { color: var(--accent); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; }
+    [data-theme^="term"] .card-title::before { content: "┌─[ "; color: var(--border-ink); font-weight: 500; }
+    [data-theme^="term"] .card-title::after  { content: " ]"; color: var(--border-ink); font-weight: 500; }
+    [data-theme^="term"] .card .card { background: var(--code-bg); border-style: dashed; border-left-style: solid; }
+    /* Стат-карточки: срез 16px, шеврон », отступы от среза */
+    [data-theme^="term"] .stat-card {
+      clip-path: polygon(0 0, calc(100% - 16px) 0, 100% 16px, 100% 100%, 0 100%);
+      padding: 10px 30px 14px 13px;           /* право 30px + низ 14px — текст мимо среза и шеврона */
+    }
+    [data-theme^="term"] .stat-card::before { width: 16px; height: 16px; }
+    [data-theme^="term"] .stat-card::after {
+      content: "»"; position: absolute; right: 7px; bottom: 3px;
+      font-size: 13px; font-weight: 700; color: var(--accent); opacity: 0.65; pointer-events: none;
+    }
+    [data-theme^="term"] .stat-label { color: var(--text-mute); text-transform: lowercase; letter-spacing: 0.04em; }
+    [data-theme^="term"] .stat-label::before { content: ":: "; color: var(--accent); }
+    [data-theme^="term"] .stat-value { color: var(--text-bright); }
+    [data-theme^="term"] .stat-value.accent { color: var(--accent2); }
+    /* Таблицы */
+    [data-theme^="term"] th { color: var(--text-mute); text-transform: lowercase; border-bottom: 1px dashed var(--border); }
+    [data-theme^="term"] td { color: var(--text); border-bottom: 1px dotted var(--border-mute); }
+    [data-theme^="term"] tr:hover td { background: var(--surface2); }
+    [data-theme^="term"] td code { color: var(--accent2); background: transparent; border: none; }
+    /* Бейджи и прото-чипы: текст в брекетах, без плашек */
+    [data-theme^="term"] .badge { background: transparent !important; border: none; padding: 0; font-weight: 700; }
+    [data-theme^="term"] .badge-active::before   { content: "● "; }
+    [data-theme^="term"] .badge-active   { color: var(--ok); }
+    [data-theme^="term"] .badge-warn::before     { content: "◐ "; }
+    [data-theme^="term"] .badge-warn     { color: var(--warn); }
+    [data-theme^="term"] .badge-danger::before   { content: "✗ "; }
+    [data-theme^="term"] .badge-danger   { color: var(--danger); }
+    [data-theme^="term"] .badge-inactive::before { content: "○ "; }
+    [data-theme^="term"] .badge-inactive { color: var(--text-mute); }
+    [data-theme^="term"] .badge-info     { color: var(--accent2); }
+    [data-theme^="term"] [class^="proto-"], [data-theme^="term"] [class*=" proto-"] { background: transparent !important; padding: 0; clip-path: none; }
+    [data-theme^="term"] [class^="proto-"]::before, [data-theme^="term"] [class*=" proto-"]::before { content: "["; color: var(--text-mute); }
+    [data-theme^="term"] [class^="proto-"]::after,  [data-theme^="term"] [class*=" proto-"]::after  { content: "]"; color: var(--text-mute); }
+    [data-theme^="term"] .proto-vless  { color: var(--accent); }
+    [data-theme^="term"] .proto-trojan { color: var(--accent2); }
+    [data-theme^="term"] .proto-naive  { color: var(--warn); }
+    [data-theme^="term"] .proto-vmess  { color: var(--text-dim); }
+    [data-theme^="term"] .proto-ss     { color: var(--danger); }
+    [data-theme^="term"] .proto-socks, [data-theme^="term"] .proto-http { color: var(--text-mute); }
+    /* Кнопки-брекеты: двойной срез 12px; primary/CTA всегда зелёный */
+    [data-theme^="term"] .btn {
+      border-radius: 0; filter: none;
+      text-transform: uppercase; letter-spacing: 0.08em;
+      clip-path: polygon(0 0, calc(100% - 12px) 0, 100% 12px, 100% 100%, 12px 100%, 0 calc(100% - 12px));
+      padding: 7px 20px 7px 18px;             /* текст мимо обоих срезов */
+    }
+    [data-theme^="term"] .btn::before { content: "[ "; opacity: 0.55; }
+    [data-theme^="term"] .btn::after  { content: " ]"; opacity: 0.55; }
+    [data-theme^="term"] .btn-primary { background: var(--ok); border: 1px solid var(--ok); color: var(--cta-ink); box-shadow: none; }
+    [data-theme^="term"] .btn-primary:hover:not(:disabled) { background: var(--ok-deep); border-color: var(--ok-deep); }
+    [data-theme^="term"] .btn-primary:disabled { background: transparent; border-color: var(--border-mute); color: var(--text-mute); }
+    [data-theme^="term"] .btn-outline { background: transparent; border: 1px solid var(--border); color: var(--text); }
+    [data-theme^="term"] .btn-outline:hover:not(:disabled) { background: var(--surface2); color: var(--text-bright); }
+    [data-theme^="term"] .btn-danger { background: rgba(0,0,0,0.25); border: 1px solid var(--danger); color: var(--danger); }
+    [data-theme^="term"] .btn-icon { background: transparent; border: 1px solid var(--border); color: var(--text-dim); clip-path: none; padding: 7px; }
+    [data-theme^="term"] .btn-icon::before, [data-theme^="term"] .btn-icon::after { content: none; }
+    /* Прогресс: CSS-эквивалент ASCII ▓▓░░ (T1 поставки) */
+    [data-theme^="term"] .progress { background: var(--code-bg); border: 1px solid var(--border-mute); border-radius: 0; height: 9px; }
+    [data-theme^="term"] .progress-bar { border-radius: 0; box-shadow: none;
+      background: repeating-linear-gradient(90deg, var(--ok) 0 6px, transparent 6px 9px); }
+    [data-theme^="term"] .progress-bar.warn   { background: repeating-linear-gradient(90deg, var(--warn) 0 6px, transparent 6px 9px); }
+    [data-theme^="term"] .progress-bar.danger { background: repeating-linear-gradient(90deg, var(--danger) 0 6px, transparent 6px 9px); }
+    /* Формы */
+    [data-theme^="term"] .form-label { color: var(--text-bright); text-transform: lowercase; }
+    [data-theme^="term"] .form-label::before { content: ":: "; color: var(--accent); }
+    [data-theme^="term"] .form-control { background: var(--code-bg); color: var(--text-bright); border: 1px solid var(--border); border-radius: 0; }
+    [data-theme^="term"] .form-control::placeholder { color: var(--text-mute); }
+    [data-theme^="term"] .form-control:focus { border-color: var(--accent); outline: none; box-shadow: 0 0 0 1px var(--accent); }
+    [data-theme^="term"] .form-control:disabled { background: var(--surface); color: var(--text-mute); border-style: dotted; }
+    [data-theme^="term"] .form-text { color: var(--text-dim); }
+    [data-theme^="term"] .form-text::before { content: "# "; color: var(--text-mute); }
+    [data-theme^="term"] option { background: var(--surface); color: var(--text); }
+    /* Модалки: окно с двойной рамкой + срез 22px + линия 5px */
+    [data-theme^="term"] .modal-backdrop { background: rgba(0,0,0,0.78); }
+    [data-theme^="term"] .modal-box {
+      position: relative;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-left: 5px solid var(--accent);
+      outline: 1px solid var(--border-mute); outline-offset: 3px;
+      border-radius: 0; box-shadow: none;
+      clip-path: polygon(0 0, calc(100% - 22px) 0, 100% 22px, 100% 100%, 0 100%);
+    }
+    [data-theme^="term"] .modal-box::before {
+      content: ""; position: absolute; top: 0; right: 0; width: 22px; height: 22px; pointer-events: none; z-index: 1;
+      background: linear-gradient(to top right, transparent calc(50% - 5px), var(--accent) calc(50% - 5px), var(--accent) 50%, transparent 50%);
+    }
+    [data-theme^="term"] .modal-title { color: var(--accent); text-transform: uppercase; font-size: 12px; letter-spacing: 0.08em; padding-right: 26px; }
+    [data-theme^="term"] .modal-title::before { content: "┌─[ "; color: var(--border-ink); }
+    [data-theme^="term"] .modal-title::after  { content: " ]"; color: var(--border-ink); }
+    [data-theme^="term"] .modal-footer { border-top: 1px dashed var(--border); background: var(--surface2); }
+    /* Тосты: лог-строки (bi-иконку прячем — маркер рисует ::before) */
+    [data-theme^="term"] .toast { background: var(--code-bg); border: 1px solid var(--border-mute); border-left: none; border-radius: 0; box-shadow: none; font-size: 11.5px; }
+    [data-theme^="term"] .toast .toast-icon { display: none; }
+    [data-theme^="term"] .toast::before { font-weight: 700; margin-right: 8px; }
+    [data-theme^="term"] .toast.success::before { content: "[ok]"; color: var(--ok); }
+    [data-theme^="term"] .toast.error::before   { content: "[!!]"; color: var(--danger); }
+    [data-theme^="term"] .toast.warning::before { content: "[??]"; color: var(--warn); }
+    [data-theme^="term"] .toast.info::before    { content: "[::]"; color: var(--accent2); }
+    /* Код-блоки: cyan-линия 3px + срез 10px */
+    [data-theme^="term"] .code-block {
+      background: var(--code-bg); color: var(--accent2);
+      border: 1px dashed var(--border); border-left: 3px solid var(--accent2);
+      border-radius: 0;
+      clip-path: polygon(0 0, calc(100% - 10px) 0, 100% 10px, 100% 100%, 0 100%);
+      padding-right: 20px;
+    }
+    [data-theme^="term"] code { color: var(--accent2); background: transparent; }
+    /* Empty-state */
+    [data-theme^="term"] .empty-icon { color: var(--text-mute); }
+    [data-theme^="term"] .empty-title { color: var(--text-bright); text-transform: lowercase; }
+    [data-theme^="term"] .empty-title::before { content: "$ "; color: var(--ok); }
+    [data-theme^="term"] .empty-desc { color: var(--text-dim); }
+    /* Скроллбар */
+    [data-theme^="term"] ::-webkit-scrollbar-thumb { background: var(--border-ink); border-radius: 0; }
+
   </style>
   <!-- Prefetch страниц меню при наведении (Speculation Rules API).
        eagerness:moderate = загрузка начинается на hover — к моменту клика
@@ -914,24 +1178,24 @@
     </div>
     <nav class="sidebar-nav">
       <div class="nav-section">Основное</div>
-      <a href="/dashboard" class="nav-link {% if request.path == '/dashboard' %}active{% endif %}">
+      <a href="/dashboard" data-icon="dashboard" class="nav-link {% if request.path == '/dashboard' %}active{% endif %}">
         <i class="bi bi-speedometer2"></i> Дашборд
       </a>
-      <a href="/inbounds" class="nav-link {% if request.path.startswith('/inbounds') or request.path.startswith('/clients') %}active{% endif %}">
+      <a href="/inbounds" data-icon="inbounds" class="nav-link {% if request.path.startswith('/inbounds') or request.path.startswith('/clients') %}active{% endif %}">
         <i class="bi bi-arrow-down-circle"></i> Inbounds
       </a>
       <div class="nav-section">Маршрутизация</div>
-      <a href="/routing" class="nav-link {% if request.path == '/routing' %}active{% endif %}">
+      <a href="/routing" data-icon="routing" class="nav-link {% if request.path == '/routing' %}active{% endif %}">
         <i class="bi bi-diagram-3"></i> Маршрутизация
       </a>
-      <a href="/security" class="nav-link {% if request.path == '/security' %}active{% endif %}">
+      <a href="/security" data-icon="security" class="nav-link {% if request.path == '/security' %}active{% endif %}">
         <i class="bi bi-shield-check"></i> Безопасность
       </a>
-      <a href="/split-tunnel" class="nav-link {% if request.path == '/split-tunnel' %}active{% endif %}">
+      <a href="/split-tunnel" data-icon="split" class="nav-link {% if request.path == '/split-tunnel' %}active{% endif %}">
         <i class="bi bi-scissors"></i> Сплит-туннель
       </a>
       <div class="nav-section">Сервер</div>
-      <a href="/server" class="nav-link {% if request.path == '/server' or request.path == '/system' or request.path == '/settings' %}active{% endif %}">
+      <a href="/server" data-icon="server" class="nav-link {% if request.path == '/server' or request.path == '/system' or request.path == '/settings' %}active{% endif %}">
         <i class="bi bi-hdd-rack"></i> Сервер
       </a>
     </nav>
@@ -950,9 +1214,9 @@
       </button>
       <h1 style="flex:1">{% block page_title %}{% endblock %}</h1>
       <div class="badge-status" id="status-bar">
-        <span class="dot dot-grey" id="dot-xray"></span><span id="lbl-xray">Xray</span>
+        <span class="dot dot-grey" id="dot-xray"></span><span id="lbl-xray" class="status-off">Xray</span>
         &nbsp;
-        <span class="dot dot-grey" id="dot-caddy"></span><span id="lbl-caddy">Caddy</span>
+        <span class="dot dot-grey" id="dot-caddy"></span><span id="lbl-caddy" class="status-off">Caddy</span>
       </div>
     </div>
     <div class="content">
@@ -1092,6 +1356,10 @@
         const dc = document.getElementById('dot-caddy');
         dx.className = 'dot ' + (s.xray.active ? 'dot-green' : 'dot-red');
         dc.className = 'dot ' + (s.caddy.active ? 'dot-green' : 'dot-red');
+        // Терминальные темы прячут точки и рисуют текстовые маркеры
+        // [ok]/[!!] через классы на подписи (поставка terminal, T2).
+        document.getElementById('lbl-xray').className = s.xray.active ? 'status-ok' : 'status-fail';
+        document.getElementById('lbl-caddy').className = s.caddy.active ? 'status-ok' : 'status-fail';
       } catch {}
     }
     updateStatusBar();
