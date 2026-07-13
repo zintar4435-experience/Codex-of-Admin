@@ -130,8 +130,10 @@ def _build_tls_settings(inbound: Inbound) -> dict | None:
 def _build_stream_settings(inbound: Inbound) -> dict:
     transport = inbound.transport or "tcp"
     tcfg = inbound.get_transport_config()
-    # Xray называет транспорт HTTP/2 "http"; в UI/БД он хранится как "h2".
-    # Маппим только имя сети — ветки настроек ниже по-прежнему сверяются с "h2".
+    # ЛЕГАСИ: транспорт "h2" удалён в Xray ≥24.12 и убран из UI/валидатора
+    # (VALID_TRANSPORTS). Ветки ниже оставлены для старых записей в БД —
+    # такой конфиг не пройдёт pre-validation (`xray run -test`) с ошибкой
+    # Xray о removed feature; инбаунд нужно пересоздать (splithttp/ws/grpc).
     network = "http" if transport == "h2" else transport
     stream: dict[str, Any] = {"network": network}
 

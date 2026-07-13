@@ -1,0 +1,87 @@
+# CI панели: те же проверки, что pre-flight в update.sh (компиляция всех
+# .py + парс всех Jinja-шаблонов), плюс smoke-тест фабрики приложения и
+# bash -n для установочных скриптов. Панель ставится на сервер прямо из
+# main (bootstrap.sh) — CI ловит синтаксические ошибки ДО того, как они
+# уедут на боевой сервер.
+#
+# Матрица Python: 3.10 = Ubuntu 22.04, 3.12 = Ubuntu 24.04 — целевые ОС
+# панели (см. README).
+name: CI
+
+on:
+  push:
+
+defaults:
+  run:
+    working-directory: proxy-panel-v11-stage2-4-uifix-FIXED8
+
+jobs:
+  checks:
+    name: Python ${{ matrix.python-version }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.10', '3.12']
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: proxy-panel-v11-stage2-4-uifix-FIXED8/requirements.txt
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Compile Python (как pre-flight update.sh)
+        run: python -m compileall -q app run.py
+
+      - name: Parse Jinja templates (как pre-flight update.sh)
+        run: |
+          python - <<'PY'
+          import os, sys
+          from jinja2 import Environment, FileSystemLoader, exceptions
+          tdir = "app/templates"
+          env = Environment(loader=FileSystemLoader(tdir))
+          bad = []
+          for root, _, files in os.walk(tdir):
+              for f in files:
+                  if not f.endswith(".html"):
+                      continue
+                  rel = os.path.relpath(os.path.join(root, f), tdir)
+                  try:
+                      env.parse(open(os.path.join(root, f)).read())
+                  except exceptions.TemplateSyntaxError as e:
+                      bad.append(f"  {rel}: {e}")
+          if bad:
+              print("Jinja syntax errors:\n" + "\n".join(bad), file=sys.stderr)
+              sys.exit(1)
+          print("Jinja OK")
+          PY
+
+      - name: Smoke — create_app и базовые GET
+        run: |
+          python - <<'PY'
+          import os
+          os.environ.setdefault("SECRET_KEY", "ci-smoke")
+          from app import create_app
+          app = create_app()
+          c = app.test_client()
+          for path in ("/", "/auth/login"):
+              r = c.get(path)
+              print(path, r.status_code)
+              assert r.status_code in (200, 302, 308), (path, r.status_code)
+          print("Smoke OK")
+          PY
+
+      - name: Bash syntax (install/update/bootstrap)
+        run: |
+          bash -n install.sh
+          bash -n update.sh
+          bash -n ../bootstrap.sh
