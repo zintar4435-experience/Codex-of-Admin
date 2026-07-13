@@ -948,7 +948,11 @@
     /* Сайдбар / топбар */
     [data-theme^="term"] .sidebar,
     [data-theme^="term"] .topbar { background: var(--surface); border-color: var(--border); }
-    [data-theme^="term"] .sidebar { position: relative; }
+    /* ВАЖНО: position сайдбара НЕ переопределять. База — fixed (вынут из
+       потока, .main компенсирует margin-left). relative из поставки возвращал
+       его в flex-поток body → контент уезжал на двойной отступ (сайдбар +
+       margin). Для абсолютного ::after ниже fixed уже является containing
+       block — relative не нужен. */
     [data-theme^="term"] .sidebar::after { /* шевроны-лесенка внизу */
       content: "›››"; position: absolute; left: 12px; bottom: 8px;
       font-size: 14px; font-weight: 700; letter-spacing: 0.3em;
