@@ -441,6 +441,21 @@ function render() {
   document.getElementById('col-naive').innerHTML = renderColumn(naive, 'Нет NaiveProxy-inbounds');
 }
 
+// Совместимость inbound'а с приложением Codex-Connect. Оно читает подписку,
+// но парсит РОВНО два формата: VLESS+Reality (security=reality) и NaiveProxy.
+// Всё прочее (vmess/trojan/ss/socks/http, а также vless с обычным TLS) попадёт
+// в подписку ссылкой, которую приложение молча отбросит. Логика зеркалит
+// генератор ссылок на бэкенде (clients.py:_vless_link): security=reality
+// ставится только когда tls_enabled=false И задан reality_public_key.
+function ccCompatible(ib) {
+  if (ib.engine === 'naive') return true;
+  if (ib.protocol === 'vless' && !ib.tls_enabled) {
+    const tc = ib.transport_config || {};
+    return !!tc.reality_public_key;
+  }
+  return false;
+}
+
 function renderColumn(list, emptyMsg) {
   if (!list.length) return `<div class="card ib-empty-col">${emptyMsg}</div>`;
   return list.map(ib => {
@@ -452,6 +467,10 @@ function renderColumn(list, emptyMsg) {
     const statusBadge = ib.enabled
       ? '<span class="badge badge-active">active</span>'
       : '<span class="badge badge-inactive">disabled</span>';
+    // Метка совместимости с приложением Codex-Connect (см. ccCompatible).
+    const ccBadge = ccCompatible(ib)
+      ? '<span class="badge badge-active" title="Совместимо с приложением Codex-Connect: приложение подключится к этому inbound\'у по подписке."><i class="bi bi-check-circle-fill"></i> Connect</span>'
+      : '<span class="badge badge-inactive" title="Приложение Codex-Connect читает только VLESS+Reality и NaiveProxy. Ссылка попадёт в подписку, но приложение её проигнорирует."><i class="bi bi-x-circle"></i> Connect</span>';
     return `<div class="ib-item" id="ib-item-${ib.id}">
       <div class="card">
         <div class="ib-head" onclick="toggleInbCard(${ib.id})">
@@ -461,7 +480,7 @@ function renderColumn(list, emptyMsg) {
             <span class="proto proto-${ib.protocol}">${ib.protocol.toUpperCase()}</span>
             <span class="text-dim">${portDomain}</span>
             <code class="text-dim">${transport}</code>
-            ${tlsBadge} ${statusBadge}
+            ${tlsBadge} ${statusBadge} ${ccBadge}
             <span class="badge" id="ib-cc-${ib.id}"><i class="bi bi-people"></i> ${ib.client_count}</span>
           </div>
           <div class="ib-actions">

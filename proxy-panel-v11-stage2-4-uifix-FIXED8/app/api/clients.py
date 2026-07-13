@@ -105,7 +105,21 @@ def _vless_link(client: Client, inbound: Inbound) -> str:
     elif tcfg.get("reality_public_key"):
         params["security"] = "reality"
         params["pbk"] = tcfg.get("reality_public_key", "")
-        params["sni"] = (tcfg.get("reality_server_names") or [""])[0]
+        # SNI. В shared-443 режиме сервер ИГНОРИРУЕТ reality_server_names из
+        # формы и подставляет свои panel/naive-домены (xray.py:_build_stream_
+        # settings). Ссылка обязана нести тот же SNI, что реально ждёт сервер,
+        # иначе Reality-handshake не сойдётся. Поэтому здесь тоже берём домены
+        # из _shared_443_server_names() — единый источник истины с сервером.
+        # В классическом Reality (port≠443) сервер читает reality_server_names,
+        # берём их же. Локальный импорт — как в inbounds.py, во избежание циклов.
+        from app.core.xray import (
+            _is_reality_shared_443, _shared_443_server_names,
+        )
+        if _is_reality_shared_443(inbound):
+            shared_names = _shared_443_server_names()
+            params["sni"] = shared_names[0] if shared_names else ""
+        else:
+            params["sni"] = (tcfg.get("reality_server_names") or [""])[0]
         params["sid"] = (tcfg.get("reality_short_ids") or [""])[0]
         params["fp"] = tcfg.get("fingerprint", "chrome")
     if client.flow:
@@ -142,7 +156,11 @@ def _shadowsocks_link(client: Client, inbound: Inbound) -> str:
 
 def _naive_link(client: Client, inbound: Inbound) -> str:
     username = client.username or client.name
-    password = client.password or ""
+    # Пароль ДОЛЖЕН совпадать с тем, что кладётся в Caddy forwardproxy
+    # (caddy.py:_build_naive_catchall_route → c.password or c.uuid). Если у
+    # клиента пароль не задан, сервер авторизует по uuid — значит и ссылка
+    # обязана нести uuid, иначе Basic-auth не сойдётся и клиент не подключится.
+    password = client.password or client.uuid
     domain = _server(inbound)
     return f"naive+https://{urllib.parse.quote(username)}:{urllib.parse.quote(password)}@{domain}:443#{urllib.parse.quote(client.name)}"
 

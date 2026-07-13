@@ -110,3 +110,22 @@
     резервный код). Логин по-прежнему работает без 2FA.
   • UI: карточка на «Сервер → Настройки» с QR-подключением и резервными
     кодами; на странице входа поле кода появляется при необходимости.
+
+## Совместимость с приложением Codex-Connect
+Аудит стыка «панель → подписка → приложение Codex-Connect». Приложение
+парсит ровно два формата ссылок: VLESS+Reality и NaiveProxy. Найдено и
+исправлено три расхождения (все — на стороне генерации ссылок, app/api/clients.py):
+- ФИКС: NaiveProxy — пароль в share-ссылке. Раньше `client.password or ""`
+  давал пустой пароль у клиента без явного пароля, тогда как Caddy авторизует
+  по `client.password or client.uuid` — Basic-auth не сходился, подключения не
+  было. Теперь ссылка тоже несёт uuid (`_naive_link`).
+- ФИКС: VLESS+Reality в shared-443 — SNI в ссылке. Сервер в shared-режиме
+  игнорирует reality_server_names из формы и подставляет свои panel/naive-домены
+  (xray.py:_build_stream_settings), а ссылка брала SNI из пустого поля формы →
+  `sni=""` → Reality-handshake у клиента не сходился. Теперь `_vless_link` в
+  shared-443 берёт SNI из того же `_shared_443_server_names()`, что и сервер.
+  Классический Reality (port≠443) не затронут — SNI по-прежнему из формы.
+- Метка совместимости в UI списка inbounds: бейдж «Connect ✓/✗» показывает,
+  прочитает ли приложение этот inbound из подписки (VLESS+Reality или Naive —
+  да; vmess/trojan/ss/socks/http и vless с обычным TLS — нет, ссылка молча
+  отбрасывается). inbounds.html, функция ccCompatible (зеркалит _vless_link).
