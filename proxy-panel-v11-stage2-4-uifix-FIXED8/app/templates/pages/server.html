@@ -221,6 +221,32 @@
     border-radius: 6px;
     box-shadow: inset 0 1px 0 rgba(255,255,255,.05), 0 2px 6px rgba(0,0,0,.45);
   }
+  /* Превью терминальных тем: «окно» с жирной линией слева, срезом угла с
+     планкой и промпт-строкой (поставка terminal 2026.07.14). */
+  .theme-preview-card.term {
+    border-radius: 0;
+    border: 1px solid var(--tp-border);
+    border-left: 4px solid var(--tp-accent);
+    background: var(--tp-surface);
+    clip-path: polygon(0 0, calc(100% - 10px) 0, 100% 10px, 100% 100%, 0 100%);
+    font-family: 'JetBrains Mono', monospace;
+  }
+  .theme-preview-card.term::before {
+    content: "";
+    position: absolute;
+    top: 0; right: 0; width: 10px; height: 10px;
+    background: linear-gradient(to top right, transparent calc(50% - 3px), var(--tp-accent) calc(50% - 3px), var(--tp-accent) 50%, transparent 50%);
+  }
+  .theme-preview-card.term::after {
+    content: "$ codex ▌";
+    position: absolute;
+    left: 8px; top: 6px;
+    font-size: 10px; font-weight: 700;
+    color: var(--tp-accent);
+  }
+  .theme-preview-card.term-phosphor { --tp-surface: #071009; --tp-border: rgba(72,255,133,.30); --tp-accent: #48FF85; }
+  .theme-preview-card.term-red     { --tp-surface: #140709; --tp-border: rgba(255,64,90,.32); --tp-accent: #FF405A; }
+  .theme-preview-card.term-ochre   { --tp-surface: #121006; --tp-border: rgba(200,134,42,.32); --tp-accent: #C8862A; }
   .theme-name {
     font-size: 13px;
     font-weight: 600;
@@ -466,6 +492,27 @@
         </div>
         <div class="theme-name">Graphite</div>
         <div class="theme-desc">Матовый тёмный графит: зернистая фактура, приглушённый шалфейный акцент, мягкие тени. Спокойная и контрастная.</div>
+      </button>
+      <button type="button" class="theme-option" data-theme-name="term-phosphor" onclick="setTheme('term-phosphor')">
+        <div class="theme-preview" style="background: repeating-linear-gradient(180deg, rgba(72,255,133,.028) 0 1px, transparent 1px 4px), radial-gradient(130% 100% at 50% 0%, #071009 0%, #030503 70%)">
+          <div class="theme-preview-card term term-phosphor"></div>
+        </div>
+        <div class="theme-name">Terminal Phosphor</div>
+        <div class="theme-desc">Хакерский терминал: фосфорно-зелёный CRT, моно-шрифт, ASCII-маркеры и кнопки-брекеты, окна со срезами.</div>
+      </button>
+      <button type="button" class="theme-option" data-theme-name="term-red" onclick="setTheme('term-red')">
+        <div class="theme-preview" style="background: repeating-linear-gradient(180deg, rgba(255,64,90,.025) 0 1px, transparent 1px 4px), radial-gradient(130% 100% at 50% 0%, #140709 0%, #080304 70%)">
+          <div class="theme-preview-card term term-red"></div>
+        </div>
+        <div class="theme-name">Terminal Red</div>
+        <div class="theme-desc">Терминал в духе Codex Red: алые чернила на чёрном, командная строка вместо заголовков, лог-строки вместо тостов.</div>
+      </button>
+      <button type="button" class="theme-option" data-theme-name="term-ochre" onclick="setTheme('term-ochre')">
+        <div class="theme-preview" style="background: repeating-linear-gradient(180deg, rgba(200,134,42,.03) 0 1px, transparent 1px 4px), radial-gradient(130% 100% at 50% 0%, #121006 0%, #070502 70%)">
+          <div class="theme-preview-card term term-ochre"></div>
+        </div>
+        <div class="theme-name">Terminal Ochre</div>
+        <div class="theme-desc">Тёмная охра старого CRT: янтарные чернила, тёплый монохром, та же терминальная геометрия.</div>
       </button>
     </div>
   </div>
