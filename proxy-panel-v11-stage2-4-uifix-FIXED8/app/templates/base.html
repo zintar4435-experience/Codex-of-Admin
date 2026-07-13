@@ -420,8 +420,10 @@
     /* ─── Modal ─────────────────────────────────────────────────── */
     .modal-backdrop {
       position: fixed; inset: 0;
-      background: rgba(0,0,0,.65);
-      backdrop-filter: blur(4px);
+      /* Без blur (аудит дизайн-поставки 2026.07.13, фикс A1): backdrop-filter
+         на полноэкранном бекдропе — дорогой полноэкранный проход композитора;
+         затемнение чуть плотнее компенсирует читаемость модалки. */
+      background: rgba(0,0,0,.72);
       z-index: 200;
       display: none;
       align-items: center;
@@ -754,8 +756,9 @@
     .sidebar-backdrop {
       display: none;
       position: fixed; inset: 0;
-      background: rgba(0,0,0,.55);
-      backdrop-filter: blur(2px);
+      /* Без blur (фикс A2, тот же аудит): бекдроп — не «неподвижная панель»
+         из закрытого списка (сайдбар/топбар/модалки), blur тут запрещён. */
+      background: rgba(0,0,0,.62);
       z-index: 99;        /* ниже sidebar (100), выше остального */
       animation: fadeIn .15s ease;
     }
