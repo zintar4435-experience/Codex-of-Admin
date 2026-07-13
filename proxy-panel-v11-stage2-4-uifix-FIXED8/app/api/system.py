@@ -587,6 +587,23 @@ def _xray_latest_version() -> str:
         return _xray_latest_cache["ver"]
 
 
+# Версия кода панели: файл VERSION лежит в корне установки (рядом с run.py),
+# приезжает из репозитория при установке/обновлении; его же печатает
+# update.sh («Версия до/после»). Путь считаем от app/api/ → корень панели.
+_PANEL_VERSION_PATH = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+    "VERSION",
+)
+
+
+def _panel_version() -> str:
+    try:
+        with open(_PANEL_VERSION_PATH) as f:
+            return f.read().strip() or "unknown"
+    except OSError:
+        return "unknown"
+
+
 # Кэш ответа /status: его поллит статус-бар на КАЖДОЙ открытой странице,
 # а внутри — несколько subprocess-вызовов (systemctl is-active xray/caddy)
 # + HTTP к Caddy admin. Схема stale-while-revalidate: запрос ВСЕГДА получает
@@ -620,6 +637,7 @@ def _collect_status() -> dict:
         disk_total = disk_used = 0
 
     return {
+        "panel":  {"version": _panel_version()},
         "xray":   {**xray, "version": _xray_version()},
         "caddy":  {**caddy_svc, "api_reachable": caddy_api["running"]},
         "system": {

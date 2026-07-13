@@ -25,7 +25,11 @@ NAIVE_PROTOCOLS = {"naive"}
 # Чтобы вернуть протокол, когда он заработает, добавьте его сюда (одна строка).
 # Существующих инбаундов это НЕ касается — редактирование/применение работают.
 ENABLED_XRAY_PROTOCOLS = {"vless", "trojan"}
-VALID_TRANSPORTS = {"tcp", "ws", "grpc", "kcp", "h2", "httpupgrade", "splithttp"}
+# «h2» убран: Xray ≥24.12 удалил транспорт HTTP/2 (миграция на XHTTP =
+# splithttp), конфиг с ним не проходит `xray run -test`. Существующие
+# h2-инбаунды в БД применить нельзя — их нужно пересоздать на другом
+# транспорте (splithttp/ws/grpc).
+VALID_TRANSPORTS = {"tcp", "ws", "grpc", "kcp", "httpupgrade", "splithttp"}
 
 XRAY_BIN = "/usr/local/bin/xray"
 

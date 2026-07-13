@@ -76,7 +76,11 @@ write_file() {
 [[ $(uname -m) != "x86_64" ]] && error "Поддерживается только x86_64"
 
 # ── Версии компонентов (менять здесь при обновлении) ─────────
-XRAY_VERSION="1.8.10"           # https://github.com/XTLS/Xray-core/releases
+XRAY_VERSION="26.3.27"          # https://github.com/XTLS/Xray-core/releases
+                                 # (последний стабильный; апстрим перешёл на
+                                 # датированные версии ГГ.М.Д). ВНИМАНИЕ: в
+                                 # Xray ≥24.12 транспорт h2 удалён (миграция
+                                 # на XHTTP) — панель h2 больше не предлагает.
 GO_VERSION="1.25.0"              # нужен для xcaddy
 CADDY_VERSION="v2.10.2"          # последний hotfix в 2.10.x line
                                  # ВАЖНО: НЕ повышать до v2.11.x без
@@ -358,17 +362,21 @@ VERSION="${1:-}"
 [[ -z "${VERSION}" ]] && { echo "Использование: xray-update.sh <version>"; exit 1; }
 
 XRAY_URL="https://github.com/XTLS/Xray-core/releases/download/v${VERSION}/Xray-linux-64.zip"
-XRAY_SHA256_URL="https://github.com/XTLS/Xray-core/releases/download/v${VERSION}/Xray-linux-64.zip.sha256sum"
+# Свежие релизы Xray публикуют чек-суммы в файле .dgst (строки вида
+# «SHA2-256= <hex>»); отдельного .sha256sum больше нет (был до ~24.x).
+XRAY_DGST_URL="https://github.com/XTLS/Xray-core/releases/download/v${VERSION}/Xray-linux-64.zip.dgst"
 
 echo "Скачивание Xray v${VERSION}..."
 wget -q -O /tmp/xray-upd.zip          "${XRAY_URL}"       || { echo "Ошибка загрузки архива"; exit 1; }
-if wget -q -O /tmp/xray-upd.zip.sha256sum "${XRAY_SHA256_URL}" 2>/dev/null; then
-    ( cd /tmp && sha256sum --check <(sed 's|Xray-linux-64.zip|/tmp/xray-upd.zip|' xray-upd.zip.sha256sum) ) \
-        || { echo "Проверка SHA-256 не прошла"; rm -f /tmp/xray-upd.zip /tmp/xray-upd.zip.sha256sum; exit 1; }
-    rm /tmp/xray-upd.zip.sha256sum
+if wget -q -O /tmp/xray-upd.zip.dgst "${XRAY_DGST_URL}" 2>/dev/null; then
+    EXPECTED=$(sed -n 's/^SHA2-256= *//p' /tmp/xray-upd.zip.dgst | head -1)
+    [[ -n "${EXPECTED}" ]] || { echo "В .dgst не найдена строка SHA2-256"; rm -f /tmp/xray-upd.zip /tmp/xray-upd.zip.dgst; exit 1; }
+    echo "${EXPECTED}  /tmp/xray-upd.zip" | sha256sum --check - \
+        || { echo "Проверка SHA-256 не прошла"; rm -f /tmp/xray-upd.zip /tmp/xray-upd.zip.dgst; exit 1; }
+    rm /tmp/xray-upd.zip.dgst
 else
-    echo "Предупреждение: SHA-256 для v${VERSION} недоступен, проверка пропущена"
-    rm -f /tmp/xray-upd.zip.sha256sum
+    echo "Предупреждение: .dgst для v${VERSION} недоступен, проверка пропущена"
+    rm -f /tmp/xray-upd.zip.dgst
 fi
 
 unzip -q -o /tmp/xray-upd.zip -d /tmp/xray-upd

@@ -37,7 +37,11 @@ usage() {
 [[ $# -eq 0 ]] && usage
 
 # ── Версии компонентов (менять здесь при обновлении) ─────────
-XRAY_VERSION="1.8.10"          # https://github.com/XTLS/Xray-core/releases
+XRAY_VERSION="26.3.27"         # https://github.com/XTLS/Xray-core/releases
+                                # (последний стабильный; апстрим перешёл на
+                                # датированные версии ГГ.М.Д). ВНИМАНИЕ: в
+                                # Xray ≥24.12 транспорт h2 удалён (миграция
+                                # на XHTTP) — панель h2 больше не предлагает.
 GO_VERSION="1.25.0"             # нужен только для пересборки Caddy
 CADDY_VERSION="v2.10.2"         # последний hotfix в 2.10.x line
                                 # ВАЖНО: НЕ повышать до v2.11.x без
@@ -429,17 +433,27 @@ update_xray() {
     version_before=$(xray version 2>/dev/null | head -1 || echo "не установлен")
     info "Версия до:  ${version_before}"
 
+    # Скачиваем и проверяем АРХИВ ДО остановки сервиса: если загрузка или
+    # чек-сумма не пройдут, xray продолжит работать на старой версии,
+    # а не останется остановленным.
+    info "Загрузка Xray v${XRAY_VERSION}..."
+    local xray_url="https://github.com/XTLS/Xray-core/releases/download/v${XRAY_VERSION}/Xray-linux-64.zip"
+    # Свежие релизы Xray публикуют чек-суммы в .dgst («SHA2-256= <hex>»);
+    # отдельного .sha256sum больше нет (был до ~24.x).
+    local xray_dgst_url="https://github.com/XTLS/Xray-core/releases/download/v${XRAY_VERSION}/Xray-linux-64.zip.dgst"
+    wget -q -O /tmp/xray.zip      "${xray_url}"
+    wget -q -O /tmp/xray.zip.dgst "${xray_dgst_url}"
+    local xray_sha_expected
+    xray_sha_expected=$(sed -n 's/^SHA2-256= *//p' /tmp/xray.zip.dgst | head -1)
+    [[ -n "${xray_sha_expected}" ]] \
+        || error "В Xray-linux-64.zip.dgst не найдена строка SHA2-256. Обновление прервано."
+    echo "${xray_sha_expected}  /tmp/xray.zip" | sha256sum --check - \
+        || error "Проверка SHA-256 для xray.zip не прошла. Обновление прервано."
+    rm /tmp/xray.zip.dgst
+
     info "Остановка сервиса xray..."
     systemctl stop xray
 
-    info "Загрузка Xray v${XRAY_VERSION}..."
-    local xray_url="https://github.com/XTLS/Xray-core/releases/download/v${XRAY_VERSION}/Xray-linux-64.zip"
-    local xray_sha_url="https://github.com/XTLS/Xray-core/releases/download/v${XRAY_VERSION}/Xray-linux-64.zip.sha256sum"
-    wget -q -O /tmp/xray.zip          "${xray_url}"
-    wget -q -O /tmp/xray.zip.sha256sum "${xray_sha_url}"
-    ( cd /tmp && sha256sum --check <(sed 's|Xray-linux-64.zip|/tmp/xray.zip|' xray.zip.sha256sum) ) \
-        || error "Проверка SHA-256 для xray.zip не прошла. Обновление прервано."
-    rm /tmp/xray.zip.sha256sum
     unzip -q -o /tmp/xray.zip -d /tmp/xray
     install -m 755 /tmp/xray/xray /usr/local/bin/xray
     rm -rf /tmp/xray /tmp/xray.zip

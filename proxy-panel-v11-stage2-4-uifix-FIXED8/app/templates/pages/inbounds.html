@@ -158,13 +158,14 @@
             <option value="ws">WebSocket</option>
             <option value="grpc">gRPC</option>
             <option value="kcp">mKCP</option>
-            <option value="h2">HTTP/2</option>
+            <!-- h2 (HTTP/2) убран: Xray ≥24.12 удалил этот транспорт,
+                 замена — SplitHTTP (XHTTP). -->
             <option value="httpupgrade">HTTPUpgrade</option>
             <option value="splithttp">SplitHTTP</option>
           </select>
         </div>
         <div class="form-group" id="ws-path-group">
-          <label class="form-label">Путь (WS/H2)</label>
+          <label class="form-label">Путь (WS/HTTP-транспорты)</label>
           <input type="text" class="form-control" id="f-path" placeholder="/">
         </div>
       </div>
