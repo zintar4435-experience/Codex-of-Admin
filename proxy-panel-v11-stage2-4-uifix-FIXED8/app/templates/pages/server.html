@@ -178,19 +178,36 @@
     border: 1px solid rgba(255,255,255,.08);
     border-radius: 4px;
   }
-  .theme-preview-card.codex-red {
-    background: repeating-linear-gradient(0deg, rgba(255,255,255,.02) 0 1px, transparent 1px 3px), #140a0d;
-    border: none;
+  /* Превью codex-тем — «батлдек» v2: срез tab верхне-правого угла с планкой,
+     плоские цвета, без свечений (theme-previews.css поставки, адаптировано
+     под .theme-preview-card). */
+  .theme-preview-card.codex-red,
+  .theme-preview-card.codex-green {
+    position: absolute;
     border-radius: 0;
-    clip-path: polygon(12px 0, 100% 0, 100% calc(100% - 12px), calc(100% - 12px) 100%, 0 100%, 0 12px);
-    filter: drop-shadow(0 0 0.7px rgba(255,46,77,.9)) drop-shadow(0 0 6px rgba(255,46,77,.25));
+    clip-path: polygon(0 0, calc(100% - 10px) 0, 100% 10px, 100% 100%, 0 100%);
+    filter: none;
+  }
+  .theme-preview-card.codex-red {
+    background: #1D212C;
+    border: 1.5px solid rgba(229,99,107,.30);
   }
   .theme-preview-card.codex-green {
-    background: repeating-linear-gradient(0deg, rgba(255,255,255,.02) 0 1px, transparent 1px 3px), #0a1710;
-    border: none;
-    border-radius: 0;
-    clip-path: polygon(12px 0, 100% 0, 100% calc(100% - 12px), calc(100% - 12px) 100%, 0 100%, 0 12px);
-    filter: drop-shadow(0 0 0.7px rgba(57,255,157,.9)) drop-shadow(0 0 6px rgba(57,255,157,.25));
+    background: #0E1A11;
+    border: 1.5px solid rgba(99,177,137,.30);
+  }
+  .theme-preview-card.codex-red::after,
+  .theme-preview-card.codex-green::after {
+    content: "";
+    position: absolute;
+    top: 0; right: 0; width: 10px; height: 10px;
+    pointer-events: none;
+  }
+  .theme-preview-card.codex-red::after {
+    background: linear-gradient(to top right, transparent calc(50% - 3px), rgba(229,99,107,.60) calc(50% - 3px), rgba(229,99,107,.60) 50%, transparent 50%);
+  }
+  .theme-preview-card.codex-green::after {
+    background: linear-gradient(to top right, transparent calc(50% - 3px), rgba(99,177,137,.60) calc(50% - 3px), rgba(99,177,137,.60) 50%, transparent 50%);
   }
   .theme-preview-card.glass {
     background: rgba(255,255,255,.10);
@@ -423,14 +440,14 @@
         <div class="theme-desc">Текущий стиль. Спокойные slate-тона, emerald-акцент, плоские карточки. Меньше нагрузки на глаза при длительной работе.</div>
       </button>
       <button type="button" class="theme-option" data-theme-name="codex-red" onclick="setTheme('codex-red')">
-        <div class="theme-preview" style="background: radial-gradient(120% 90% at 82% -10%, rgba(255,46,77,.25) 0%, transparent 55%), #0a0507">
+        <div class="theme-preview" style="background: repeating-linear-gradient(180deg, rgba(229,99,107,.022) 0 1px, transparent 1px 4px), radial-gradient(130% 100% at 50% 0%, #1C1420 0%, #120D15 70%)">
           <div class="theme-preview-card codex-red"></div>
         </div>
         <div class="theme-name">Codex Red</div>
         <div class="theme-desc">Киберпанк: неоново-красная «проводка», голографические экраны со сканлайнами, скошенные углы, техно-моно шрифт.</div>
       </button>
       <button type="button" class="theme-option" data-theme-name="codex-green" onclick="setTheme('codex-green')">
-        <div class="theme-preview" style="background: radial-gradient(120% 90% at 82% -10%, rgba(57,255,157,.25) 0%, transparent 55%), #05100b">
+        <div class="theme-preview" style="background: repeating-linear-gradient(180deg, rgba(99,177,137,.03) 0 1px, transparent 1px 4px), radial-gradient(130% 100% at 50% 0%, #0C1810 0%, #070E08 70%)">
           <div class="theme-preview-card codex-green"></div>
         </div>
         <div class="theme-name">Codex Green</div>

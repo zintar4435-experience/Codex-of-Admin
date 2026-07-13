@@ -578,115 +578,112 @@
        все компоненты). Где переменных мало — точечные правила по селекторам.
        ═══════════════════════════════════════════════════════════════ */
 
-    /* ── Темы CODEX RED / CODEX GREEN — киберпанк: неоновая «проводка»,
-       голографические экраны со сканлайнами, скошенные углы (clip-path),
-       техно-моно типографика на дисплейных элементах. Общие правила идут
-       по [data-theme^="codex"], палитры различаются токенами.
-       Primary-кнопки НАМЕРЕННО зелёные в обеих (semантика «действие=ок»). ── */
+    /* ── Темы CODEX RED / CODEX GREEN — «батлдек» v2 (поставка
+       codex-panel-battledeck-2026.07.13 по ТЗ №4, канон = tokens.json клиента):
+       плоский матовый HUD — срез tab (ТОЛЬКО верхне-правый угол) с планкой по
+       фаске, сканлайны 4px, БЕЗ свечений/теней/сетки. Общие правила идут по
+       [data-theme^="codex"], палитры различаются токенами.
+       Primary-кнопки НАМЕРЕННО зелёные в обеих (семантика «действие=ок»). ── */
     [data-theme="codex-red"] {
-      --bg: #0a0507; --surface: #140a0d; --surface2: #1f0e13;
-      --border: rgba(var(--neon-rgb),0.26); --border-mute: rgba(var(--neon-rgb),0.11);
-      --accent: #ff2e4d; --accent-hi: #ff5c74; --accent2: #35e0ff;
-      --danger: #ff6a3d; --warn: #ffc23c; --info: #a98bff;
-      --text: #dbe9ec; --text-dim: #8199a0; --text-mute: #566a70; --text-bright: #f2fbff;
-      --neon-rgb: 255,46,77; --neon2-rgb: 53,224,255; --ok: #39ff9d; --ok-rgb: 57,255,157;
+      --bg: #150F17; --surface: #1D212C; --surface2: #242938;
+      --border: rgba(229,99,107,0.30); --border-mute: rgba(229,99,107,0.14);
+      --border-strong: rgba(229,99,107,0.60);
+      --accent: #E5636B; --accent-hi: #EC7F86; --accent2: #8B97B5;
+      --danger: #E07A4F; --warn: #D9A95C; --info: #8B97B5;
+      --text: #F2E7E6; --text-dim: #A3909A; --text-mute: #6E5F68; --text-bright: #FBF6F5;
+      --ok: #6EC897; --ok-deep: #48A271; --ok-rgb: 110,200,151;
+      --edge-rgb: 229,99,107;
+      --bg-grad-0: #1C1420; --bg-grad-1: #120D15; --scan-a: 0.022;
     }
     [data-theme="codex-green"] {
-      --bg: #05100b; --surface: #0a1710; --surface2: #0e2015;
-      --border: rgba(var(--ok-rgb),0.24); --border-mute: rgba(var(--ok-rgb),0.11);
-      --accent: #39ff9d; --accent-hi: #6bffb8; --accent2: #35e0ff;
-      --danger: #ff6a3d; --warn: #ffc23c; --info: #a98bff;
-      --text: #d7ece0; --text-dim: #7fa090; --text-mute: #54705f; --text-bright: #f2fff6;
-      --neon-rgb: 57,255,157; --neon2-rgb: 53,224,255; --ok: #39ff9d; --ok-rgb: 57,255,157;
+      --bg: #081009; --surface: #0E1A11; --surface2: #132417;
+      --border: rgba(99,177,137,0.30); --border-mute: rgba(99,177,137,0.14);
+      --border-strong: rgba(99,177,137,0.60);
+      --accent: #63B189; --accent-hi: #7FC49E; --accent2: #9ED8BA;
+      --danger: #E07A4F; --warn: #D9A95C; --info: #9ED8BA;
+      --text: #DCEFE3; --text-dim: #83A691; --text-mute: #567262; --text-bright: #F2FBF5;
+      --ok: #63B189; --ok-deep: #41926A; --ok-rgb: 99,177,137;
+      --edge-rgb: 99,177,137;
+      --bg-grad-0: #0C1810; --bg-grad-1: #070E08; --scan-a: 0.03;
     }
-    /* фон НЕ background-attachment:fixed: «приклеенный» фон означает
-       перерисовку всего вьюпорта на каждый кадр скролла (главный источник
-       тормозов). Скроллящийся фон композитится бесплатно; сетка и сканлайны
-       бесшовные — визуально разница минимальна. */
-    [data-theme="codex-red"] body {
-      background-color: #0a0507;
+    /* Фон: радиальный купол сверху (fx.json) + сканлайны (период 4px, линия
+       1px, alpha по теме). НЕ background-attachment:fixed: «приклеенный» фон
+       означает перерисовку всего вьюпорта на каждый кадр скролла (главный
+       источник тормозов, перф §4). Цветовых пятен и сетки 44px в «батлдеке»
+       нет — фон плоский. */
+    [data-theme^="codex"] body {
+      background-color: var(--bg);
       background-image:
-        radial-gradient(120% 90% at 82% -10%, #ff2e4d33 0%, transparent 55%),
-        radial-gradient(90% 70% at 0% 105%, #35e0ff1a 0%, transparent 55%),
-        repeating-linear-gradient(0deg, #35e0ff09 0px, #35e0ff09 1px, transparent 1px, transparent 3px),
-        url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='44' height='44'%3E%3Cpath d='M44 0H0V44' fill='none' stroke='%23ff2e4d21' stroke-width='1'/%3E%3C/svg%3E");
-      background-repeat: no-repeat, no-repeat, repeat, repeat;
+        repeating-linear-gradient(180deg, rgba(var(--edge-rgb), var(--scan-a)) 0px, rgba(var(--edge-rgb), var(--scan-a)) 1px, transparent 1px, transparent 4px),
+        radial-gradient(130% 100% at 50% 0%, var(--bg-grad-0) 0%, var(--bg-grad-1) 70%);
+      background-repeat: repeat, no-repeat;
     }
-    [data-theme="codex-green"] body {
-      background-color: #05100b;
-      background-image:
-        radial-gradient(120% 90% at 82% -10%, #39ff9d33 0%, transparent 55%),
-        radial-gradient(90% 70% at 0% 105%, #35e0ff1a 0%, transparent 55%),
-        repeating-linear-gradient(0deg, #35e0ff09 0px, #35e0ff09 1px, transparent 1px, transparent 3px),
-        url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='44' height='44'%3E%3Cpath d='M44 0H0V44' fill='none' stroke='%2339ff9d21' stroke-width='1'/%3E%3C/svg%3E");
-      background-repeat: no-repeat, no-repeat, repeat, repeat;
+    [data-theme^="codex"] .sidebar, [data-theme^="codex"] .topbar { border-color: var(--border-mute); }
+    /* Карточки: плоские (без теней и filter), контур 1.5px, срез tab
+       (13px, у модалок 16px) ТОЛЬКО верхне-правого угла; --tab-cut читает
+       ::after-планка ниже. border при таком клипе не срезается: срез
+       проходит через сам угол, а не через стороны. */
+    [data-theme^="codex"] .card, [data-theme^="codex"] .stat-card,
+    [data-theme^="codex"] .code-block, [data-theme^="codex"] .toast {
+      position: relative;
+      border: 1.5px solid var(--border);
+      border-radius: 0;
+      box-shadow: none;
+      filter: none;
+      clip-path: polygon(0 0, calc(100% - 13px) 0, 100% 13px, 100% 100%, 0 100%);
+      --tab-cut: 13px;
     }
-    /* голографические экраны: сканлайны + внутренняя подсветка */
-    [data-theme^="codex"] .sidebar, [data-theme^="codex"] .topbar {
-      border-color: rgba(var(--neon-rgb),0.24);
-      box-shadow: inset 0 -1px 0 rgba(var(--neon2-rgb),0.10);
+    [data-theme^="codex"] .modal-box {
+      position: relative;
+      border: 1.5px solid var(--border-strong);
+      border-radius: 0;
+      box-shadow: none;
+      filter: none;
+      clip-path: polygon(0 0, calc(100% - 16px) 0, 100% 16px, 100% 100%, 0 100%);
+      --tab-cut: 16px;
     }
-    [data-theme^="codex"] .card, [data-theme^="codex"] .stat-card, [data-theme^="codex"] .modal-box {
-      background:
-        repeating-linear-gradient(0deg, rgba(255,255,255,0.014) 0px, rgba(255,255,255,0.014) 1px, transparent 1px, transparent 3px),
-        var(--surface);
-      /* только inset-тени: наружные всё равно срезал бы clip-path */
-      box-shadow: inset 0 1px 0 rgba(var(--neon2-rgb),0.20), inset 0 0 24px rgba(var(--neon-rgb),0.06);
+    /* Планка по фаске: диагональная полоса 4px в срезанном углу (роль
+       акцента формы — вместо неоновых свечений старой версии). */
+    [data-theme^="codex"] .card::after, [data-theme^="codex"] .stat-card::after,
+    [data-theme^="codex"] .code-block::after, [data-theme^="codex"] .toast::after,
+    [data-theme^="codex"] .modal-box::after {
+      content: "";
+      position: absolute;
+      top: 0; right: 0;
+      width: var(--tab-cut); height: var(--tab-cut);
+      pointer-events: none;
+      background: linear-gradient(to top right, transparent calc(50% - 4px), var(--border-strong) calc(50% - 4px), var(--border-strong) 50%, transparent 50%);
     }
-    [data-theme^="codex"] .card .card {
-      background: rgba(var(--neon-rgb),0.05);
-      box-shadow: inset 0 0 0 1px rgba(var(--neon-rgb),0.18);
-      clip-path: polygon(14px 0, 100% 0, 100% calc(100% - 14px), calc(100% - 14px) 100%, 0 100%, 0 14px);
+    [data-theme^="codex"] .card .card { background: var(--bg); border-color: var(--border-mute); }
+    [data-theme^="codex"] .card .card::after {
+      background: linear-gradient(to top right, transparent calc(50% - 4px), var(--border) calc(50% - 4px), var(--border) 50%, transparent 50%);
+    }
+    /* Кнопки: плоские, срез 7px, primary/CTA всегда зелёный (--ok) */
+    [data-theme^="codex"] .btn {
+      border-radius: 0;
+      clip-path: polygon(0 0, calc(100% - 7px) 0, 100% 7px, 100% 100%, 0 100%);
       filter: none;
     }
-    /* скошенные киберпанк-углы + неоновая кромка через drop-shadow.
-       Кромка — ОДИН тонкий drop-shadow (он и есть «граница», border срезал
-       бы clip-path). Широкое декоративное свечение убрано: второй filter на
-       каждой карточке/кнопке множил слои композитинга и тормозил рендер. */
-    [data-theme^="codex"] .card, [data-theme^="codex"] .stat-card, [data-theme^="codex"] .modal-box,
-    [data-theme^="codex"] .code-block, [data-theme^="codex"] .toast {
-      border: none;
-      clip-path: polygon(24px 0, 100% 0, 100% calc(100% - 24px), calc(100% - 24px) 100%, 0 100%, 0 24px);
-      filter: drop-shadow(0 0 0.7px rgba(var(--neon-rgb),0.9));
-    }
-    [data-theme^="codex"] .btn {
-      border: none;
-      clip-path: polygon(9px 0, 100% 0, 100% calc(100% - 9px), calc(100% - 9px) 100%, 0 100%, 0 9px);
-    }
-    [data-theme^="codex"] .badge, [data-theme^="codex"] .proto {
-      clip-path: polygon(6px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%, 0 6px);
-    }
-    [data-theme^="codex"] .form-control {
-      clip-path: polygon(9px 0, 100% 0, 100% calc(100% - 9px), calc(100% - 9px) 100%, 0 100%, 0 9px);
-    }
-    /* свечение и цвета */
-    [data-theme^="codex"] .sidebar-logo span { color: var(--accent); text-shadow: 0 0 10px rgba(var(--neon-rgb),0.55); }
-    [data-theme^="codex"] .card-title, [data-theme^="codex"] .modal-title { text-shadow: 0 0 8px rgba(var(--neon-rgb),0.4); }
-    [data-theme^="codex"] .stat-value { text-shadow: 0 0 10px rgba(var(--neon-rgb),0.35); }
-    [data-theme^="codex"] .stat-value.accent { color: var(--accent2); text-shadow: 0 0 10px rgba(var(--neon2-rgb),0.45); }
-    [data-theme^="codex"] .nav-link.active {
-      box-shadow: inset 0 0 18px rgba(var(--neon-rgb),0.14);
-      text-shadow: 0 0 6px rgba(var(--neon-rgb),0.5);
-      background: rgba(var(--neon-rgb),0.07);
-    }
-    [data-theme^="codex"] .btn-primary {
-      background: #12c26a; color: #04140b;
-      box-shadow: inset 0 1px 0 rgba(255,255,255,0.25);
-    }
-    [data-theme^="codex"] .btn-primary:hover:not(:disabled) { background: #22e084; }
-    [data-theme^="codex"] .btn-outline { background: var(--surface2); color: var(--text); }
-    [data-theme^="codex"] .btn-outline:hover:not(:disabled) { background: rgba(var(--neon-rgb),0.12); color: var(--text-bright); }
-    [data-theme^="codex"] .progress-bar { box-shadow: 0 0 10px rgba(var(--neon-rgb),0.55); }
-    [data-theme^="codex"] .code-block {
-      color: var(--accent2); border-color: rgba(var(--neon2-rgb),0.32);
-      text-shadow: 0 0 6px rgba(var(--neon2-rgb),0.22);
-      filter: drop-shadow(0 0 0.7px rgba(var(--neon2-rgb),0.85));
-    }
-    /* семантика «зелёное = хорошо» остаётся зелёной (неон) в обеих codex-темах */
-    [data-theme^="codex"] .dot-green { background: var(--ok); box-shadow: 0 0 9px var(--ok); }
-    [data-theme^="codex"] .badge-active { color: var(--ok); background: rgba(var(--ok-rgb),0.13); }
+    [data-theme^="codex"] .btn-primary { background: var(--ok); color: #0A1410; box-shadow: none; }
+    [data-theme^="codex"] .btn-primary:hover:not(:disabled) { background: var(--ok-deep); color: #EAF6EF; }
+    [data-theme^="codex"] .btn-primary:disabled { background: var(--surface2); color: var(--text-mute); }
+    [data-theme^="codex"] .btn-outline { border: 1px solid var(--border); background: var(--surface); }
+    [data-theme^="codex"] .btn-outline:hover:not(:disabled) { background: var(--surface2); color: var(--text-bright); }
+    /* Прочее: плоско, без неона */
+    [data-theme^="codex"] .nav-link.active { box-shadow: none; text-shadow: none; }
+    [data-theme^="codex"] .stat-value.accent { color: var(--accent2); text-shadow: none; }
+    [data-theme^="codex"] .progress-bar { box-shadow: none; }
+    [data-theme^="codex"] .code-block { color: var(--accent2); }
+    [data-theme^="codex"] .badge-status { border-color: var(--border); color: var(--accent2); }
+    [data-theme^="codex"] .badge, [data-theme^="codex"] .proto { clip-path: none; }
+    [data-theme^="codex"] .form-control { clip-path: none; border-radius: 0; }
+    /* семантика «зелёное = хорошо» остаётся зелёной в обеих codex-темах */
+    [data-theme^="codex"] .dot-green { background: var(--ok); box-shadow: none; }
+    [data-theme^="codex"] .badge-active { color: var(--ok); background: rgba(var(--ok-rgb),0.14); }
     [data-theme^="codex"] .toast.success { border-color: rgba(var(--ok-rgb),0.45); }
-    /* киберпанк-типографика: техно-моно + капс на дисплейных элементах */
+    /* Моно-капс типографика и терминальные маркеры — сохранены («батлдек»
+       наследует терминальный характер, ТЗ №4 §3.6); свечения текста убраны. */
+    [data-theme^="codex"] .sidebar-logo span { color: var(--accent); }
     [data-theme^="codex"] .sidebar-logo span, [data-theme^="codex"] .card-title,
     [data-theme^="codex"] .modal-title, [data-theme^="codex"] .nav-link,
     [data-theme^="codex"] .nav-section, [data-theme^="codex"] .stat-label,
