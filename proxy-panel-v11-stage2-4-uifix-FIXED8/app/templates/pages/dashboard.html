@@ -483,11 +483,11 @@ function renderTop(top) {
   box.innerHTML = top.map(c => `
     <a href="/clients/${c.inbound_id}" style="text-decoration:none;display:block">
       <div class="top-row">
-        <div class="nm" title="${c.name}">${c.name}</div>
+        <div class="nm" title="${escapeHtml(c.name)}">${escapeHtml(c.name)}</div>
         <div class="total">${fmtBytes(c.total)}</div>
         <div class="meta">
           <span>↑ ${fmtBytes(c.up)} · ↓ ${fmtBytes(c.down)}</span>
-          <span><code>${c.inbound_tag}</code></span>
+          <span><code>${escapeHtml(c.inbound_tag)}</code></span>
         </div>
       </div>
     </a>
@@ -523,7 +523,7 @@ function renderAlerts(a) {
       <a href="/clients/${c.inbound_id}" style="text-decoration:none;color:inherit">
         <div class="alert-row">
           <i class="bi bi-clock-history" style="color:var(--warn)"></i>
-          <span class="name">${c.name}</span>
+          <span class="name">${escapeHtml(c.name)}</span>
           <span class="ext">истекает через ${human}</span>
         </div>
       </a>
@@ -535,7 +535,7 @@ function renderAlerts(a) {
       <a href="/clients/${c.inbound_id}" style="text-decoration:none;color:inherit">
         <div class="alert-row">
           <i class="bi bi-exclamation-triangle" style="color:var(--danger)"></i>
-          <span class="name">${c.name}</span>
+          <span class="name">${escapeHtml(c.name)}</span>
           <span class="ext">${c.pct}% лимита</span>
         </div>
       </a>

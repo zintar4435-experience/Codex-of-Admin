@@ -90,10 +90,34 @@ def create_app(config_overrides: dict = None) -> Flask:
     login_manager = LoginManager(app)
     login_manager.login_view = "auth.login"
     login_manager.login_message = "Требуется авторизация"
+    # strong: Flask-Login дополнительно привязывает сессию к отпечатку
+    # клиента и сбрасывает её при несовпадении.
+    login_manager.session_protection = "strong"
 
     @login_manager.user_loader
     def load_user(user_id):
-        return db.session.get(User, int(user_id))
+        """БЕЗОПАСНОСТЬ (аудит 2026-07): id в cookie имеет вид "<id>:<хвост
+        хеша пароля>" (см. User.get_id). Сверяем хвост — после смены пароля
+        все ранее выпущенные cookie становятся недействительными.
+
+        Старые cookie (без ":") принимаем как невалидные — пользователь
+        просто войдёт заново; это разовое неудобство при обновлении панели.
+        """
+        raw = str(user_id)
+        if ":" not in raw:
+            return None
+        uid, _, fingerprint = raw.partition(":")
+        try:
+            user = db.session.get(User, int(uid))
+        except (TypeError, ValueError):
+            return None
+        if user is None:
+            return None
+        expected = user.password_hash[-16:]
+        # compare_digest — как и везде в проекте при сравнении секретов.
+        if not hmac.compare_digest(fingerprint, expected):
+            return None
+        return user
 
     # --- CSRF protection (правка #7) ---
     # Токен на сессию. Шаблоны вставляют его в <meta name="csrf-token">,
@@ -101,16 +125,27 @@ def create_app(config_overrides: dict = None) -> Flask:
     # запросах. Проверяем на сервере. SameSite=Lax остаётся как второй
     # эшелон. GET/HEAD не проверяются.
     #
-    # Исключения — эндпоинты первичного онбординга, которые вызываются
-    # со standalone-страниц (setup/setup_progress, не наследующих base.html,
-    # т.е. без csrf-meta). Они защищены SameSite=Lax + логином.
     # Исключения — эндпоинты, вызываемые со standalone-страниц, не
     # наследующих base.html (нет csrf-meta): форма входа и страницы
-    # первичного онбординга (setup / setup_progress). Они защищены
-    # SameSite=Lax + (где применимо) логином.
+    # первичного онбординга. Они защищены SameSite=Lax + (где применимо)
+    # логином, а JSON-эндпоинты — ещё и требованием Content-Type:
+    # application/json (form-запрос из чужой формы до них не доходит).
+    #
+    # БЕЗОПАСНОСТЬ (аудит 2026-07): "/setup" ИЗ СПИСКА УБРАН. Он принимал
+    # обычную form-urlencoded форму и менял состояние системы (panel_domain,
+    # acme_email → перегенерация конфига Caddy, HTTPS_ENABLED и GUNICORN_BIND
+    # в .env). SameSite=Lax блокирует cross-SITE POST, но НЕ same-site: панель
+    # живёт на поддомене, и каждый naive-инбаунд — на соседнем поддомене того
+    # же домена, поэтому форма с любого из них считалась бы same-site.
+    # Подменив panel_domain, атакующий перевешивал route панели на свой домен
+    # и отрезал владельца от панели (GUNICORN_BIND уже 127.0.0.1). При этом
+    # POST /setup — только no-JS fallback: формы в setup.html нет вовсе (UI
+    # шлёт JSON на /api/system/enable-https), так что снятие исключения ничего
+    # не ломает. Если no-JS форму когда-нибудь добавят — csrf_token() доступен
+    # глобально через context_processor, достаточно скрытого поля _csrf
+    # (как уже сделано для logout в base.html).
     _CSRF_EXEMPT = {
         "/auth/login",
-        "/setup",
         "/api/system/enable-https",
         "/api/system/onboarding-handoff",
         "/api/system/restart-self",

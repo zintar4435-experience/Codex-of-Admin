@@ -1270,20 +1270,38 @@
       };
       const icon = iconMap[type] || iconMap.info;
 
-      // Экранируем HTML в тексте сообщения
-      const safeMsg = msg.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+      // БЕЗОПАСНОСТЬ (аудит 2026-07): текст тоста собираем через DOM, а не
+      // строкой. Раньше сообщение подставлялось в onclick="…writeText(<msg>)"
+      // через JSON.stringify — он возвращает строку В КАВЫЧКАХ, а атрибут тоже
+      // в кавычках: любая кавычка в сообщении закрывала атрибут и превращала
+      // остаток в РАБОЧИЙ обработчик события (XSS через текст ошибки от API,
+      // например `Получено: '<tag>'`). Побочно это чинило и сломанную кнопку
+      // «Скопировать» — она из-за той же кавычки не работала вовсе.
+      el.innerHTML = `<i class="bi ${icon} toast-icon"></i>`;
 
-      el.innerHTML = `
-        <i class="bi ${icon} toast-icon"></i>
-        <span class="toast-body">${safeMsg}</span>
-        <span class="toast-actions">
-          <button class="toast-btn" title="Скопировать" onclick="navigator.clipboard.writeText(${JSON.stringify(msg)})">
-            <i class="bi bi-clipboard"></i>
-          </button>
-          <button class="toast-btn" title="Закрыть" onclick="this.closest('.toast').remove()">
-            <i class="bi bi-x"></i>
-          </button>
-        </span>`;
+      const body = document.createElement('span');
+      body.className = 'toast-body';
+      body.textContent = msg;                 // textContent — разметка не парсится
+      el.appendChild(body);
+
+      const actions = document.createElement('span');
+      actions.className = 'toast-actions';
+
+      const copyBtn = document.createElement('button');
+      copyBtn.className = 'toast-btn';
+      copyBtn.title = 'Скопировать';
+      copyBtn.innerHTML = '<i class="bi bi-clipboard"></i>';
+      copyBtn.addEventListener('click', () => navigator.clipboard.writeText(msg));
+      actions.appendChild(copyBtn);
+
+      const closeBtn = document.createElement('button');
+      closeBtn.className = 'toast-btn';
+      closeBtn.title = 'Закрыть';
+      closeBtn.innerHTML = '<i class="bi bi-x"></i>';
+      closeBtn.addEventListener('click', () => el.remove());
+      actions.appendChild(closeBtn);
+
+      el.appendChild(actions);
       c.appendChild(el);
 
       // success/info — 4 сек; error/warning — 10 сек
@@ -1336,6 +1354,23 @@
     // ── Copy to clipboard ──
     function copyText(text) {
       navigator.clipboard.writeText(text).then(() => toast('Скопировано'));
+    }
+
+    // ── Экранирование для вставки в innerHTML ──
+    // БЕЗОПАСНОСТЬ (аудит 2026-07): списки клиентов/инбаундов/правил строятся
+    // шаблонными строками и кладутся в innerHTML. Любое пользовательское поле
+    // (имя клиента, tag инбаунда, имя правила, адрес outbound'а) обязано
+    // проходить через эту функцию — иначе имя вида `<img src=x onerror=…>`
+    // выполняется в панели с правами админа и читает CSRF-токен из <meta>.
+    // Такое имя может прийти и не от владельца — например, из чужого файла
+    // бэкапа (см. app/api/backup.py). Кавычки экранируем тоже: подстановки
+    // часто идут внутрь HTML-атрибутов (title="…", data-token="…").
+    // Раньше функция была продублирована в security.html и server.html —
+    // теперь одна на всю панель, поэтому доступна всем страницам.
+    function escapeHtml(s) {
+      return String(s == null ? '' : s)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
     }
 
     // ── Format bytes ──

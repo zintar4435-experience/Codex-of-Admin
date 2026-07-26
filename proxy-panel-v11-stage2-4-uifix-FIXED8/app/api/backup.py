@@ -18,6 +18,8 @@ JSON-файл и затем восстановить их на другом/об
   Каждый inbound импортируется в собственном savepoint — ошибка одного не
   срывает весь импорт. После импорта запускается apply конфигов.
 """
+import json
+import re
 from datetime import datetime, timezone
 
 from flask import Blueprint, request, jsonify, Response
@@ -28,6 +30,15 @@ from app.models import db, Inbound, Client
 from app.core.audit import log_action
 
 bp = Blueprint("backup", __name__)
+
+# share_token уходит в HTML-атрибуты списков и в публичный URL /sub/<token>.
+# Формат — uuid4 (models.generate_uuid), поэтому принимаем только его.
+_SHARE_TOKEN_RE = re.compile(r"[0-9a-fA-F-]{16,64}")
+
+
+class _SkipInbound(Exception):
+    """Внутренний сигнал: запись не прошла валидацию — откатить savepoint
+    этого инбаунда и перейти к следующему, не срывая весь импорт."""
 
 BACKUP_FORMAT = "proxy-panel-backup"
 BACKUP_VERSION = 1
@@ -142,6 +153,121 @@ def _build_client(ib_id: int, c: dict) -> Client:
     )
 
 
+def _validate_imported_inbound(d: dict, *, replace_id: int | None) -> str | None:
+    """БЕЗОПАСНОСТЬ (аудит 2026-07): импорт обязан проходить те же проверки,
+    что и обычное создание инбаунда (POST /api/inbounds/).
+
+    Раньше _build_inbound клал поля из файла в БД напрямую, и через «дамп»
+    можно было создать то, что REST-путь запрещает: протокол вне белого
+    списка (например dokodemo — произвольный port-forward на localhost-сервисы
+    вроде admin API Caddy), занять служебный порт, подсунуть зарезервированный
+    tag (direct/block/api), протащить любые символы в tag (XSS в списках).
+    Файл бэкапа приходит извне (его могут прислать/подменить), поэтому
+    доверять ему нельзя.
+
+    Возвращает текст ошибки или None. Проверки намеренно ТЕ ЖЕ, что в
+    inbounds.py, чтобы импорт не мог обойти ни одну из них.
+
+    Файлы сертификатов на существование НЕ проверяем (в отличие от create):
+    восстановление на чистый сервер — штатный сценарий, а cert-bridge
+    синхронизирует их позже. Ограничиваемся защитой от traversal.
+    """
+    from app.api.inbounds import (
+        ENABLED_XRAY_PROTOCOLS, NAIVE_PROTOCOLS, VALID_TRANSPORTS,
+        _check_port_conflicts, _request_is_reality, _validate_naive_inbound_domain,
+    )
+    from app.core.input_validators import (
+        validate_domain, validate_enum, validate_port, validate_tag,
+    )
+
+    ok, err = validate_tag(d.get("tag"))
+    if not ok:
+        return err
+
+    engine = d.get("engine", "xray")
+    ok, err = validate_enum(engine, ("xray", "naive"), label="engine")
+    if not ok:
+        return err
+
+    protocol = d.get("protocol") or ""
+    allowed = NAIVE_PROTOCOLS if engine == "naive" else ENABLED_XRAY_PROTOCOLS
+    if protocol not in allowed:
+        return (f"протокол '{protocol}' недоступен для engine={engine} "
+                f"(разрешены: {', '.join(sorted(allowed))})")
+
+    # transport_config / extra_config хранятся как JSON-текст: битая строка
+    # уронила бы генератор конфига уже после записи в БД.
+    tcfg = {}
+    for field in ("transport_config", "extra_config"):
+        raw = d.get(field) or "{}"
+        if not isinstance(raw, str):
+            return f"{field} должен быть JSON-строкой"
+        try:
+            parsed = json.loads(raw)
+        except (ValueError, TypeError):
+            return f"{field} не является валидным JSON"
+        if not isinstance(parsed, dict):
+            return f"{field} должен быть JSON-объектом"
+        if field == "transport_config":
+            tcfg = parsed
+
+    if engine == "xray":
+        transport = d.get("transport")
+        if transport is not None and transport not in VALID_TRANSPORTS:
+            return f"неверный транспорт: {transport}"
+        # Reality определяем так же, как REST-путь — по ключу в transport_config.
+        is_reality = _request_is_reality({"protocol": protocol, "transport_config": tcfg})
+        ok, err, port = validate_port(d.get("port"), allow_reality_443=is_reality)
+        if not ok:
+            return err
+        conflict = _check_port_conflicts(
+            port, exclude_inbound_id=replace_id, is_reality=is_reality)
+        if conflict:
+            return conflict
+    else:
+        err = _validate_naive_inbound_domain(d.get("domain"))
+        if err:
+            return err
+
+    domain = d.get("domain")
+    if domain:
+        ok, err = validate_domain(domain)
+        if not ok:
+            return err
+
+    for field in ("tls_cert_path", "tls_key_path"):
+        path = d.get(field)
+        if path and (not str(path).startswith("/") or ".." in str(path)):
+            return f"{field} должен быть абсолютным путём без '..'"
+
+    return None
+
+
+def _validate_imported_client(c: dict) -> str | None:
+    """Те же проверки, что POST /api/clients/ — файл бэкапа недоверенный.
+    Главное: name попадает в списки UI, uuid/email/share_token — в ссылки."""
+    from app.core.input_validators import validate_email, validate_uuid
+
+    name = (c.get("name") or "").strip()
+    if not name:
+        return "клиент без имени"
+    if len(name) > 128:
+        return "имя клиента длиннее 128 символов"
+
+    if c.get("uuid"):
+        ok, err = validate_uuid(c["uuid"])
+        if not ok:
+            return err
+    if c.get("email"):
+        ok, err = validate_email(c["email"])
+        if not ok:
+            return err
+    token = c.get("share_token")
+    if token is not None and not _SHARE_TOKEN_RE.fullmatch(str(token)):
+        return "share_token имеет неверный формат"
+    return None
+
+
 def _build_inbound(d: dict) -> Inbound:
     return Inbound(
         tag=d["tag"],
@@ -199,12 +325,29 @@ def import_all():
                     db.session.delete(existing)
                     db.session.flush()
 
+                # БЕЗОПАСНОСТЬ: файл бэкапа недоверенный — валидируем теми же
+                # правилами, что и REST-создание. exclude_inbound_id нужен для
+                # mode=replace: собственный порт заменяемого инбаунда не должен
+                # считаться конфликтом (запись уже удалена выше, но проверка
+                # порта опирается на БД до commit).
+                verr = _validate_imported_inbound(
+                    d, replace_id=(existing.id if existing else None))
+                if verr:
+                    errors.append(f"inbound '{tag}' пропущен: {verr}")
+                    skipped_ib += 1
+                    raise _SkipInbound
+
                 ib = _build_inbound(d)
                 db.session.add(ib)
                 db.session.flush()  # получить ib.id
                 engines_touched.add(ib.engine)
 
                 for c in (d.get("clients") or []):
+                    cerr = _validate_imported_client(c)
+                    if cerr:
+                        errors.append(f"клиент в '{tag}' пропущен: {cerr}")
+                        skipped_cl += 1
+                        continue
                     try:
                         with db.session.begin_nested():
                             db.session.add(_build_client(ib.id, c))
@@ -214,6 +357,10 @@ def import_all():
                         # дубликат email/username в рамках inbound и т.п.
                         skipped_cl += 1
                 created_ib += 1
+        except _SkipInbound:
+            # Инбаунд не прошёл валидацию: savepoint откатился, сообщение
+            # уже в errors[]. Продолжаем импорт остальных.
+            continue
         except SQLAlchemyError as e:
             errors.append(f"inbound '{tag}': {type(e).__name__}")
 

@@ -179,12 +179,6 @@
 
 const container = document.getElementById('presets-container');
 
-function escapeHtml(s) {
-  if (s == null) return '';
-  return String(s)
-    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
-}
 
 function renderRuleSummary(rule) {
   // Короткий "что под капотом" — что-то вроде:

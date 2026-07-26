@@ -620,8 +620,20 @@ else
     echo "[dry-run] chown ${PANEL_USER}:${PANEL_USER} ${ENV_FILE}"
 fi
 
-run chown root:"${PANEL_USER}" /usr/local/bin /usr/local/share/xray
-run chmod 775 /usr/local/bin /usr/local/share/xray
+# БЕЗОПАСНОСТЬ (аудит 2026-07): /usr/local/bin и /usr/local/share/xray
+# ОБЯЗАНЫ оставаться root:root 755. Раньше здесь стояло chown root:proxypanel
+# + chmod 775 — право записи в КАТАЛОГ позволяет unlink/create любого файла
+# внутри, даже если сами файлы 755 root:root. А в /usr/local/bin лежат:
+#   • proxy-panel-watchdog.sh — cron запускает его ОТ ROOT каждые 2 минуты;
+#   • xray-update.sh и xray-cert-sync.sh — оба в sudoers NOPASSWD;
+#   • xray и caddy (с cap_net_bind_service).
+# Любая компрометация процесса панели (баг в зависимости, увод сессии) сразу
+# превращалась в root на хосте, обесценивая узкий белый список sudoers.
+# Панели запись сюда НЕ нужна: она эти каталоги только читает (запуск
+# /usr/local/bin/xray, чтение geosite.dat/geoip.dat) — прав 755 достаточно,
+# а обновление xray выполняет root-скрипт xray-update.sh через sudo.
+run chown root:root /usr/local/bin /usr/local/share/xray
+run chmod 755 /usr/local/bin /usr/local/share/xray
 
 # systemd unit для панели
 if ! $DRY_RUN; then

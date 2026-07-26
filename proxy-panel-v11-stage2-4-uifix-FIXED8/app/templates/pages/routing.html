@@ -320,7 +320,7 @@ async function load() {
 function populateSelects() {
   const srcSel = document.getElementById('r-src');
   srcSel.innerHTML = '<option value="">— все inbounds —</option>' +
-    inbounds.map(ib=>`<option value="${ib.id}">${ib.tag} (${ib.protocol})</option>`).join('');
+    inbounds.map(ib=>`<option value="${ib.id}">${escapeHtml(ib.tag)} (${escapeHtml(ib.protocol)})</option>`).join('');
 
   // Каскад между inbound'ами поддерживается только если dst — SOCKS5 или HTTP.
   // Для других протоколов нужен protocol-aware outbound (см. CASCADE_COMPATIBLE_PROTOCOLS
@@ -333,12 +333,12 @@ function populateSelects() {
     dstSel.innerHTML = '<option value="" disabled>Нет совместимых inbound (нужен SOCKS5 или HTTP)</option>';
   } else {
     dstSel.innerHTML = dstCandidates.map(ib =>
-      `<option value="${ib.id}">${ib.tag} (${ib.engine}/${ib.protocol})</option>`
+      `<option value="${ib.id}">${escapeHtml(ib.tag)} (${escapeHtml(ib.engine)}/${escapeHtml(ib.protocol)})</option>`
     ).join('');
   }
 
   const outSel = document.getElementById('r-dst-outbound');
-  outSel.innerHTML = outbounds.map(o=>`<option value="${o.tag}">${o.tag} (${o.protocol})</option>`).join('');
+  outSel.innerHTML = outbounds.map(o=>`<option value="${escapeHtml(o.tag)}">${escapeHtml(o.tag)} (${escapeHtml(o.protocol)})</option>`).join('');
 }
 
 function renderRules() {
@@ -357,7 +357,7 @@ function renderRules() {
     const srcIb = inbounds.find(i=>i.id===r.src_inbound_id);
     const srcStr = srcIb ? `<code>${srcIb.tag}</code>` : '<span class="text-dim">все</span>';
     const netBadge = r.match_network
-      ? ` <span class="badge badge-info" title="Транспорт">${r.match_network.toUpperCase()}</span>`
+      ? ` <span class="badge badge-info" title="Транспорт">${escapeHtml(r.match_network.toUpperCase())}</span>`
       : '';
     // Бейдж невалидности: правило с битыми geosite:/geoip:-кодами в
     // конфиг Xray не попадёт (его пропускает _build_routing_rules с
@@ -376,13 +376,13 @@ function renderRules() {
     const actionColors = {direct:'badge-active', block:'badge-danger', inbound:'badge-info', outbound:'badge-warn'};
     const dstIb = inbounds.find(i=>i.id===r.dst_inbound_id);
     const dst = r.action==='inbound' && dstIb ? `<code>${dstIb.tag}</code>` :
-                r.action==='outbound' ? `<code>${r.dst_outbound_tag}</code>` : '—';
+                r.action==='outbound' ? `<code>${escapeHtml(r.dst_outbound_tag)}</code>` : '—';
     return `<tr>
       <td style="color:var(--text-dim);font-size:11px">${r.priority}</td>
-      <td>${r.name}${warnBadge}</td>
+      <td>${escapeHtml(r.name)}${warnBadge}</td>
       <td>${srcStr}</td>
       <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px">${conditions}</td>
-      <td><span class="badge ${actionColors[r.action]||'badge-inactive'}">${r.action}</span></td>
+      <td><span class="badge ${actionColors[r.action]||'badge-inactive'}">${escapeHtml(r.action)}</span></td>
       <td>${dst}</td>
       <td><span class="badge ${r.enabled?'badge-active':'badge-inactive'}">${r.enabled?'on':'off'}</span></td>
       <td>
@@ -402,9 +402,9 @@ function renderOutbounds() {
     return;
   }
   tb.innerHTML = outbounds.map(o=>`<tr>
-    <td><code>${o.tag}</code></td>
-    <td><span class="badge badge-info">${o.protocol.toUpperCase()}</span></td>
-    <td>${o.address}</td>
+    <td><code>${escapeHtml(o.tag)}</code></td>
+    <td><span class="badge badge-info">${escapeHtml(o.protocol.toUpperCase())}</span></td>
+    <td>${escapeHtml(o.address)}</td>
     <td>${o.port}</td>
     <td>
       <button class="btn btn-danger btn-sm btn-icon" onclick="deleteOutbound(${o.id})"><i class="bi bi-trash"></i></button>
@@ -423,7 +423,7 @@ function renderCascadeDiagram() {
     const src = inbounds.find(i=>i.id===r.src_inbound_id);
     const dst = inbounds.find(i=>i.id===r.dst_inbound_id);
     return `<div style="margin-bottom:12px;padding:10px;background:var(--surface2);border-radius:var(--radius);border:1px solid var(--border)">
-      <div style="font-size:10px;color:var(--text-dim);margin-bottom:6px">${r.name}</div>
+      <div style="font-size:10px;color:var(--text-dim);margin-bottom:6px">${escapeHtml(r.name)}</div>
       <div class="flex items-center gap-2">
         ${src ? `<span class="proto proto-${src.protocol}">${src.tag}</span>` : '<span class="badge badge-info">все</span>'}
         <span style="color:var(--accent)">→</span>
