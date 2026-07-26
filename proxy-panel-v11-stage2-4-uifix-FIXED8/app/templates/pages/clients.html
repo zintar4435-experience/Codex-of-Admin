@@ -221,7 +221,7 @@ function render() {
     const statusText = c.is_active ? 'active' : c.is_expired ? 'expired' : c.is_over_limit ? 'over limit' : 'disabled';
     const idStr = c.uuid ? c.uuid.substring(0,8)+'…' : c.username || '—';
     return `<tr>
-      <td><strong style="color:var(--text-bright)">${c.name}</strong></td>
+      <td><strong style="color:var(--text-bright)">${escapeHtml(c.name)}</strong></td>
       <td><code class="text-dim" style="font-size:11px">${idStr}</code></td>
       <td>${fmtBytes(c.traffic_used_up)}</td>
       <td>${fmtBytes(c.traffic_used_down)}</td>
@@ -244,7 +244,7 @@ function render() {
                        data-name="${encodeURIComponent(c.name)}" onclick="showLinkEncoded(this)" title="Ссылка и QR-код">
                  <i class="bi bi-qr-code"></i>
                </button>
-               <button class="btn btn-outline btn-sm btn-icon" data-token="${c.share_token || ''}"
+               <button class="btn btn-outline btn-sm btn-icon" data-token="${escapeHtml(c.share_token || '')}"
                        data-name="${encodeURIComponent(c.name)}" onclick="showSubFromBtn(this)"
                        title="Subscription URL" ${c.share_token ? '' : 'disabled'}>
                  <i class="bi bi-broadcast"></i>
@@ -316,7 +316,7 @@ async function rotateSubToken() {
     // Открываем модалку заново уже с новым токеном
     const c = clients.find(x => x.id === currentSubClient);
     if (c) {
-      const subUrl = `${location.origin}/sub/${r.share_token}`;
+      const subUrl = `${location.origin}/sub/${escapeHtml(r.share_token)}`;
       document.getElementById('sub-link-text').textContent = subUrl;
       renderQR('sub-qr-canvas', subUrl, 220);
       openModal('modal-sub');

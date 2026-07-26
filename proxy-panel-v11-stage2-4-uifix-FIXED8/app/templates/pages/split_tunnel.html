@@ -140,9 +140,9 @@ function render() {
     return `<div class="card" style="margin-bottom:0">
       <div class="card-header">
         <div class="flex items-center gap-2">
-          <span class="card-title">${lst.name}</span>
-          <span class="badge ${actionBadge}">${lst.action}</span>
-          <span class="badge badge-inactive">${lst.list_type}</span>
+          <span class="card-title">${escapeHtml(lst.name)}</span>
+          <span class="badge ${actionBadge}">${escapeHtml(lst.action)}</span>
+          <span class="badge badge-inactive">${escapeHtml(lst.list_type)}</span>
           <span class="badge ${lst.enabled?'badge-active':'badge-inactive'}">${lst.enabled?'вкл':'выкл'}</span>
         </div>
         <div class="flex gap-2">
@@ -160,7 +160,7 @@ function render() {
       <div style="font-size:11px;color:var(--text-dim)">
         <div>${lst.entry_count} записей${lst.source_url ? ` · обновлён ${updated}` : ' · ручной ввод'}</div>
         ${lst.source_url ? `<div class="mt-1" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
-          <i class="bi bi-link"></i> <code style="font-size:10px">${lst.source_url}</code>
+          <i class="bi bi-link"></i> <code style="font-size:10px">${escapeHtml(lst.source_url)}</code>
         </div>` : ''}
       </div>
     </div>`;

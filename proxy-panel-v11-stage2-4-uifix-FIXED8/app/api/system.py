@@ -9,8 +9,8 @@ import secrets
 import threading
 import time
 import urllib.request
-from flask import Blueprint, request, jsonify
-from flask_login import login_required, current_user
+from flask import Blueprint, request, jsonify, session
+from flask_login import login_required, current_user, login_user, logout_user
 from app.models import db, Setting, AuditLog
 from app import limiter
 from app.core.xray import apply_xray_config, XRAY_CONFIG_PATH, XRAY_BINARY
@@ -970,8 +970,17 @@ def change_password():
         return jsonify({"error": "Новый пароль должен отличаться от текущего"}), 400
     current_user.set_password(new_password)
     db.session.commit()
+    # БЕЗОПАСНОСТЬ (аудит 2026-07): идентификатор сессии привязан к отпечатку
+    # пароля (User.get_id), поэтому смена пароля отзывает ВСЕ ранее выпущенные
+    # cookie — в том числе украденную. Побочный эффект: выпал бы и сам админ,
+    # поэтому сразу перевыпускаем его сессию с новым отпечатком. Все ОСТАЛЬНЫЕ
+    # копии cookie при этом остаются недействительными.
+    user = current_user._get_current_object()
+    logout_user()
+    session.clear()
+    login_user(user, remember=False)
     log_action("password.change", target_type="user",
-               target_name=current_user.username,
+               target_name=user.username,
                details={"ok": True})
     return jsonify({"ok": True})
 

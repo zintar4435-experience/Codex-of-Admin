@@ -1165,7 +1165,7 @@ function renderAudit(entries) {
       <tr>
         <td><span class="audit-time">${time}</span></td>
         <td>${user}</td>
-        <td><span class="audit-action ${info.cls}">${info.label}</span></td>
+        <td><span class="audit-action ${info.cls}">${escapeHtml(info.label)}</span></td>
         <td class="audit-target">${target}</td>
         <td>${ip}</td>
       </tr>`;
@@ -1182,12 +1182,16 @@ function renderTarget(e) {
     const d = e.details;
     const bits = [];
     // Несколько частых полей форматируем красиво
-    if (d.protocol)    bits.push(d.protocol);
-    if (d.port)        bits.push(`:${d.port}`);
-    if (d.engine && !d.protocol) bits.push(d.engine);
-    if (d.inbound_tag) bits.push(`в ${d.inbound_tag}`);
+    // БЕЗОПАСНОСТЬ (аудит 2026-07): всё, что уходит в innerHTML ниже,
+    // экранируем. d.fields — это ИМЕНА JSON-ключей запроса (см. log_action
+    // в clients.py/split_tunnel.py), то есть строки, полностью подконтрольные
+    // отправителю запроса.
+    if (d.protocol)    bits.push(escapeHtml(d.protocol));
+    if (d.port)        bits.push(`:${escapeHtml(d.port)}`);
+    if (d.engine && !d.protocol) bits.push(escapeHtml(d.engine));
+    if (d.inbound_tag) bits.push(`в ${escapeHtml(d.inbound_tag)}`);
     if (d.fields && Array.isArray(d.fields)) {
-      bits.push(`(${d.fields.slice(0,3).join(', ')}${d.fields.length>3?'…':''})`);
+      bits.push(`(${d.fields.slice(0,3).map(escapeHtml).join(', ')}${d.fields.length>3?'…':''})`);
     }
     if (typeof d.enabled === 'boolean') bits.push(d.enabled ? 'enabled' : 'disabled');
     if (d.ok === false) bits.push('<span class="text-danger">ошибка</span>');
@@ -1206,11 +1210,6 @@ function fmtAuditTime(iso) {
          `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
 }
 
-function escapeHtml(s) {
-  return String(s)
-    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
-}
 
 function updateAuditPagination() {
   const from = auditTotal ? auditOffset + 1 : 0;

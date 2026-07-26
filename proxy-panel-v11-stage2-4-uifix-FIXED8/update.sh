@@ -114,6 +114,39 @@ XRAY_UNIT
 }
 
 # ─────────────────────────────────────────────────────────────
+# ensure_system_bin_perms — БЕЗОПАСНОСТЬ (аудит 2026-07).
+# Старые install.sh делали `chown root:proxypanel` + `chmod 775` на
+# /usr/local/bin и /usr/local/share/xray. Право записи в КАТАЛОГ = право
+# подменить (unlink+create) любой файл внутри, даже принадлежащий root.
+# А оттуда root запускает watchdog по cron (каждые 2 минуты), xray-update.sh
+# и xray-cert-sync.sh через sudo NOPASSWD, плюс сами бинарники xray/caddy.
+# Итог: компрометация процесса панели давала root на всём сервере.
+# Панели запись сюда не нужна (она только читает/запускает), поэтому
+# возвращаем root:root 755. Идемпотентно: если права уже верные — no-op.
+# ─────────────────────────────────────────────────────────────
+ensure_system_bin_perms() {
+    local fixed=false
+    local d
+    for d in /usr/local/bin /usr/local/share/xray; do
+        [[ -d "${d}" ]] || continue
+        # Проверяем и владельца-группу, и биты записи для группы/остальных.
+        local owner group mode
+        owner=$(stat -c '%U' "${d}" 2>/dev/null || echo "?")
+        group=$(stat -c '%G' "${d}" 2>/dev/null || echo "?")
+        mode=$(stat -c '%a' "${d}" 2>/dev/null || echo "?")
+        if [[ "${owner}" != "root" || "${group}" != "root" || "${mode}" != "755" ]]; then
+            chown root:root "${d}"
+            chmod 755 "${d}"
+            info "  Права ${d} приведены к root:root 755 (было ${owner}:${group} ${mode})"
+            fixed=true
+        fi
+    done
+    if $fixed; then
+        info "Безопасность: убрано право записи панели в системные каталоги"
+    fi
+}
+
+# ─────────────────────────────────────────────────────────────
 # ensure_panel_ufw_sudoers — добавляет в /etc/sudoers.d/proxypanel-xray-update
 # read-only права на `ufw status`/`ufw status verbose`, если их там ещё нет.
 # Нужно для фичи «панель показывает в UI, какие порты открыты в UFW при
@@ -653,6 +686,11 @@ PYCHECK
     # по HTTPS. Этот блок — идемпотентный фикс той ошибки для всех уже
     # работающих установок.
     ensure_caddy_logrotate_safe
+
+    # БЕЗОПАСНОСТЬ: снимаем право записи панели в /usr/local/bin и
+    # /usr/local/share/xray, если его выдал старый install.sh (эскалация до
+    # root через подмену watchdog/sudo-скриптов). Идемпотентно.
+    ensure_system_bin_perms
 
     # Уверяемся, что у proxypanel есть read-only sudo на `ufw status`.
     # Нужно для нового UI-индикатора «порт открыт в UFW или нет»

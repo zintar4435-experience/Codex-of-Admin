@@ -459,8 +459,8 @@ function renderColumn(list, emptyMsg) {
         <div class="ib-head" onclick="toggleInbCard(${ib.id})">
           <i class="bi bi-chevron-right chev"></i>
           <div class="ib-meta">
-            <span class="ib-tag">${ib.tag}</span>
-            <span class="proto proto-${ib.protocol}">${ib.protocol.toUpperCase()}</span>
+            <span class="ib-tag">${escapeHtml(ib.tag)}</span>
+            <span class="proto proto-${escapeHtml(ib.protocol)}">${escapeHtml(ib.protocol.toUpperCase())}</span>
             <span class="text-dim">${portDomain}</span>
             <code class="text-dim">${transport}</code>
             ${tlsBadge} ${statusBadge}
@@ -528,9 +528,9 @@ function renderInbClients(ibId) {
     const idStr = c.uuid ? c.uuid.substring(0, 8) + '…' : (c.username || '—');
     const linkBtns = c.link ? `
         <button class="btn btn-outline btn-sm btn-icon" data-link="${encodeURIComponent(c.link)}" data-name="${encodeURIComponent(c.name)}" onclick="showLinkEncoded(this)" title="Ссылка и QR-код"><i class="bi bi-qr-code"></i></button>
-        <button class="btn btn-outline btn-sm btn-icon" data-token="${c.share_token || ''}" data-name="${encodeURIComponent(c.name)}" onclick="showSubFromBtn(this)" title="Subscription URL" ${c.share_token ? '' : 'disabled'}><i class="bi bi-broadcast"></i></button>` : '';
+        <button class="btn btn-outline btn-sm btn-icon" data-token="${escapeHtml(c.share_token || '')}" data-name="${encodeURIComponent(c.name)}" onclick="showSubFromBtn(this)" title="Subscription URL" ${c.share_token ? '' : 'disabled'}><i class="bi bi-broadcast"></i></button>` : '';
     return `<tr>
-        <td><strong style="color:var(--text-bright)">${c.name}</strong></td>
+        <td><strong style="color:var(--text-bright)">${escapeHtml(c.name)}</strong></td>
         <td><code class="text-dim" style="font-size:11px">${idStr}</code></td>
         <td style="white-space:nowrap;font-size:11px;line-height:1.45">↑ ${fmtBytes(c.traffic_used_up)}<br>↓ ${fmtBytes(c.traffic_used_down)}</td>
         <td>${c.expire_at ? `<span class="${c.is_expired ? 'text-danger' : ''}">${fmtDate(c.expire_at)}</span>` : '<span class="text-dim">∞</span>'}</td>
@@ -610,7 +610,7 @@ async function rotateSubToken() {
     const r = await api('POST', `/api/clients/${currentSubClient}/rotate-token`);
     toast('URL подписки обновлён');
     await reloadAfterClient(currentSubClient);
-    const subUrl = `${location.origin}/sub/${r.share_token}`;
+    const subUrl = `${location.origin}/sub/${escapeHtml(r.share_token)}`;
     document.getElementById('sub-link-text').textContent = subUrl;
     renderQR('sub-qr-canvas', subUrl, 220);
     openModal('modal-sub');
@@ -878,7 +878,7 @@ async function applyTemplate(key) {
     showRealitySection(false);
   }
 
-  toast(`Шаблон применён: ${t.label}`);
+  toast(`Шаблон применён: ${escapeHtml(t.label)}`);
 }
 
 // Управление видимостью Reality-секции.
