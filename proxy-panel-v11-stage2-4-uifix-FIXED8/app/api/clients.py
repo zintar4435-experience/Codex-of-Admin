@@ -193,6 +193,54 @@ def _socks_link(client: Client, inbound: Inbound) -> str:
     return f"socks5://{userinfo}@{server}:{_port(inbound)}#{urllib.parse.quote(client.name)}"
 
 
+def _ssh_link(client: Client, inbound: Inbound) -> str | None:
+    """Ссылка на SSH-узел. Формат НАШ СОБСТВЕННЫЙ — общепринятого не существует.
+
+        ssh://USER@host:port?pk=<base64url PEM>&hk=<base64url host key>
+             &cv=<баннер клиента>#Имя
+
+    Ключи едут base64url, а не percent-кодированием: обычный base64 содержит
+    '+', а Uri.decodeQueryComponent на клиенте превращает '+' в пробел — ключ
+    молча приезжает битым. Плюс ссылка остаётся одной строкой, которую можно
+    переслать в мессенджере, не порвав переводами строк.
+
+    Возвращает None, если приватного ключа в панели нет (клиент принёс свой
+    публичный) — собрать рабочую ссылку без ключа нельзя, и лучше честно не
+    отдать её, чем отдать ссылку, которая не подключается.
+    """
+    import base64 as _b64
+    from app.core import ssh as ssh_core
+
+    # Приводим PEM к канону: без хвостовых пробелов и ровно с одним \n в
+    # конце. Так ссылка не зависит от того, чем ключ пришёл в БД, и
+    # раскодированное содержимое можно сразу сохранить в файл как есть.
+    private = (client.ssh_private_key or "").strip()
+    if not private:
+        return None
+    private += "\n"
+
+    def b64u(text: str) -> str:
+        return _b64.urlsafe_b64encode(text.encode()).decode().rstrip("=")
+
+    server = _server(inbound)
+    port = inbound.port or ssh_core.DEFAULT_PORT
+    username = ssh_core.os_username(client.id)
+
+    params = [f"pk={b64u(private)}"]
+    host_key = ssh_core.get_host_public_key()
+    if host_key:
+        params.append(f"hk={b64u(host_key)}")
+    # Баннер обычного OpenSSH: библиотечный по умолчанию («SSH-2.0-Go» и т.п.)
+    # отличается от того, чем ходят живые администраторы, и делает клиента
+    # выделяющимся среди прочего SSH. Маскировкой это не является — что это
+    # SSH, видно с первого байта в любом случае.
+    params.append("cv=SSH-2.0-OpenSSH_9.6")
+
+    query = "&".join(params)
+    return (f"ssh://{urllib.parse.quote(username)}@{server}:{port}"
+            f"?{query}#{urllib.parse.quote(client.name)}")
+
+
 LINK_GENERATORS = {
     "vmess": _vmess_link,
     "vless": _vless_link,
@@ -200,6 +248,7 @@ LINK_GENERATORS = {
     "shadowsocks": _shadowsocks_link,
     "naive": _naive_link,
     "socks": _socks_link,
+    "ssh": _ssh_link,
 }
 
 
@@ -331,6 +380,32 @@ def create_client(ib_id):
         share_token=data.get("share_token") or str(uuid_mod.uuid4()),
         enabled=data.get("enabled", True),
     )
+    # SSH-узел: клиенту нужна ключевая пара. Публичный ключ уедет в
+    # authorized_keys системной учётки, приватный — в ссылку.
+    # Клиент может принести СВОЙ публичный ключ (`ssh_public_key` в запросе) —
+    # тогда приватный не генерируем и не храним вовсе: это строго безопаснее,
+    # просто ссылку в таком случае придётся собирать вручную.
+    if inbound.engine == "ssh":
+        from app.core import ssh as ssh_core
+        provided = (data.get("ssh_public_key") or "").strip()
+        if provided:
+            if not ssh_core.is_valid_public_key(provided):
+                return jsonify({"error": (
+                    "ssh_public_key не похож на строку authorized_keys. "
+                    "Поддерживаются ssh-ed25519 и ecdsa-sha2-nistp256/384; "
+                    "ssh-rsa не принимаем — OpenSSH ≥8.8 по умолчанию "
+                    "отклоняет его подпись."
+                )}), 400
+            client.ssh_public_key = provided
+        else:
+            pair = ssh_core.generate_keypair(comment=username)
+            if pair is None:
+                return jsonify({"error": (
+                    "Не удалось сгенерировать SSH-ключ (ssh-keygen). "
+                    "Создайте ключ сами и передайте ssh_public_key."
+                )}), 500
+            client.ssh_private_key, client.ssh_public_key = pair
+
     db.session.add(client)
     db.session.commit()
 
@@ -525,6 +600,9 @@ def _apply_engine(inbound: Inbound):
     if inbound.engine == "xray":
         ok, msg = apply_xray_config()
         return ok, msg
+    elif inbound.engine == "ssh":
+        from app.core.ssh import apply_ssh_config
+        return apply_ssh_config()
     else:
         apply_caddy_config()
         return True, None

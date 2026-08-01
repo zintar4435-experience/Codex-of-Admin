@@ -182,6 +182,21 @@ class Client(db.Model):
     email = db.Column(db.String(256), nullable=True)             # used as Xray stats key
     flow = db.Column(db.String(64), nullable=True)               # xtls-rprx-vision etc.
 
+    # --- SSH-узлы ---
+    # Пара ключей клиента. Публичный уезжает в authorized_keys системной
+    # учётки, приватный — в ссылку для приложения.
+    #
+    # ЧЕСТНО О ХРАНЕНИИ ПРИВАТНОГО КЛЮЧА. Он лежит в БД панели открытым — как
+    # и пароли NaiveProxy, и UUID VLESS: подписка обязана уметь ВЫДАТЬ конфиг
+    # повторно (новое устройство, переустановка), а не только один раз при
+    # создании. Разница со «взломали панель = получили shell на сервере» здесь
+    # в том, что учётка заперта: без шелла, без PTY, только проброс портов
+    # (sshd_config.d/coc-ssh.conf, см. install.sh). Кто хочет отказаться от
+    # этого компромисса — заводит клиента, оставив ssh_private_key пустым, и
+    # вносит публичный ключ, сгенерированный у себя.
+    ssh_public_key = db.Column(db.Text, nullable=True)
+    ssh_private_key = db.Column(db.Text, nullable=True)
+
     # Limits
     expire_at = db.Column(db.DateTime, nullable=True)
     traffic_limit_up = db.Column(db.BigInteger, default=0)       # bytes, 0 = unlimited
@@ -255,6 +270,10 @@ class Client(db.Model):
             "email": self.email,
             "password": self.password,
             "flow": self.flow,
+            # Сам приватный ключ в общий список НЕ кладём: он длинный и это
+            # самый тяжёлый секрет клиента. Кому он нужен — берёт его из
+            # ссылки (GET /api/clients/<id>/link) или из подписки.
+            "has_ssh_key": bool(self.ssh_public_key),
             "expire_at": self.expire_at.isoformat() if self.expire_at else None,
             "traffic_limit_up": self.traffic_limit_up,
             "traffic_limit_down": self.traffic_limit_down,

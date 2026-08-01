@@ -8,8 +8,9 @@ gunicorn workers — иначе при --workers=N задачи запускал
 Job list:
   1. Poll Xray Stats API every minute → update client traffic counters.
   2. Poll Caddy access logs every 5 minutes → update NaiveProxy client traffic.
-  3. Check client expiry / over-limit → disable + re-apply configs.
-  4. Auto-update split-tunnel lists from remote URLs (daily).
+  3. Poll nftables counters every minute → update SSH client traffic.
+  4. Check client expiry / over-limit → disable + re-apply configs.
+  5. Auto-update split-tunnel lists from remote URLs (daily).
 """
 import logging
 from datetime import datetime, timezone
@@ -159,6 +160,64 @@ def _sync_caddy_traffic():
             db.session.commit()
 
 
+def _sync_ssh_traffic():
+    """Прибавить трафик SSH-клиентов по счётчикам nftables.
+
+    Счётчики пишет root-скрипт coc-ssh-sync (см. core/ssh.py — почему не сама
+    панель) в /var/lib/proxy-panel/ssh/traffic.json. Значения НАКОПИТЕЛЬНЫЕ и
+    обнуляются при пересборке таблицы nftables (перезагрузка сервера), поэтому
+    считаем через _accumulate_delta — тот же механизм, что для Xray: он ловит
+    «новое значение меньше прошлого» и начинает новую эпоху вместо того, чтобы
+    получить отрицательную дельту.
+
+    Ключ — ИМЯ СИСТЕМНОЙ УЧЁТКИ (cocssh_<client_id>), а не client.username:
+    учётка привязана к id и переживает переименование клиента, а username
+    админ может поменять в любой момент, и трафик после этого потерялся бы.
+    """
+    from app.models import db, Client, TrafficStat, Inbound
+    from app.core.ssh import read_ssh_traffic, os_username
+
+    app = _get_app()
+    with app.app_context():
+        counters = read_ssh_traffic()
+        if not counters:
+            return
+
+        ssh_clients = (
+            Client.query
+            .join(Inbound)
+            .filter(Inbound.engine == "ssh")
+            .all()
+        )
+
+        changed = False
+        for client in ssh_clients:
+            c = counters.get(os_username(client.id))
+            if not c:
+                continue
+            new_up = int(c.get("up", 0) or 0)
+            new_down = int(c.get("down", 0) or 0)
+
+            if new_up == (client.last_seen_up or 0) and \
+                    new_down == (client.last_seen_down or 0):
+                continue
+
+            delta_up, delta_down = _accumulate_delta(client, new_up, new_down)
+            changed = True
+
+            if delta_up > 0 or delta_down > 0:
+                client.traffic_used_up = (client.traffic_used_up or 0) + delta_up
+                client.traffic_used_down = (client.traffic_used_down or 0) + delta_down
+                db.session.add(TrafficStat(
+                    client_id=client.id,
+                    delta_up=delta_up,
+                    delta_down=delta_down,
+                ))
+
+        if changed:
+            db.session.commit()
+
+
 def _enforce_limits():
     """
     Disable clients that have exceeded limits or expired.
@@ -167,6 +226,7 @@ def _enforce_limits():
     from app.models import db, Client
     from app.core.xray import apply_xray_config
     from app.core.caddy import apply_caddy_config
+    from app.core.ssh import apply_ssh_config
 
     app = _get_app()
     with app.app_context():
@@ -187,6 +247,11 @@ def _enforce_limits():
             db.session.commit()
             apply_xray_config()
             apply_caddy_config()
+            # SSH: панель лишь переписывает желаемое состояние — реально
+            # учётку запрёт и оборвёт её сессии root-скрипт на своём
+            # следующем тике. То есть отключение по лимиту доезжает с
+            # задержкой до минуты, в отличие от мгновенного у Xray/Caddy.
+            apply_ssh_config()
 
 
 def _update_split_tunnel_lists():
@@ -300,6 +365,14 @@ def run_blocking(app):
         _sync_caddy_traffic,
         trigger=IntervalTrigger(seconds=300),
         id="sync_caddy_traffic",
+        replace_existing=True,
+    )
+    # SSH: раз в минуту. Root-скрипт обновляет traffic.json на своём таймере с
+    # тем же периодом — чаще опрашивать нечего.
+    scheduler.add_job(
+        _sync_ssh_traffic,
+        trigger=IntervalTrigger(seconds=60),
+        id="sync_ssh_traffic",
         replace_existing=True,
     )
     scheduler.add_job(

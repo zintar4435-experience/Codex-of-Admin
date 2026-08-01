@@ -18,6 +18,12 @@ bp = Blueprint("inbounds", __name__)
 
 XRAY_PROTOCOLS = {"vmess", "vless", "trojan", "shadowsocks", "socks", "http", "dokodemo"}
 NAIVE_PROTOCOLS = {"naive"}
+SSH_PROTOCOLS = {"ssh"}
+
+# Движки, которые вообще можно создать. Отдельный список, потому что engine
+# приходит из запроса и раньше любая опечатка молча создавала инбаунд, который
+# ни один apply не обслуживает.
+VALID_ENGINES = {"xray", "naive", "ssh"}
 
 # Протоколы, доступные для СОЗДАНИЯ новых инбаундов. Пока в проде проверены
 # только VLESS (вкл. Reality) и NaiveProxy — остальные временно скрыты в UI и
@@ -88,6 +94,15 @@ def _apply_for_engine(engine: str) -> tuple[bool, str]:
     if engine == "naive":
         ok, msg = apply_caddy_config()
         return ok, msg if not ok else None
+
+    # SSH ни Caddy, ни Xray не касается: панель только записывает желаемое
+    # состояние учёток, а приводит систему к нему root-скрипт по таймеру
+    # (см. core/ssh.py — почему именно так). Значит apply здесь мгновенный, а
+    # реальное изменение доезжает в течение одного тика таймера.
+    if engine == "ssh":
+        from app.core.ssh import apply_ssh_config
+        ok, msg = apply_ssh_config()
+        return ok, msg
 
     # engine == "xray" — сначала pre-validate, потом apply в нужном порядке.
 
@@ -490,6 +505,12 @@ def create_inbound():
     if Inbound.query.filter_by(tag=tag).first():
         return jsonify({"error": f"Тег '{tag}' уже существует"}), 409
 
+    if engine not in VALID_ENGINES:
+        return jsonify({"error": (
+            f"Неизвестный движок: {engine}. Допустимы: "
+            f"{', '.join(sorted(VALID_ENGINES))}"
+        )}), 400
+
     if engine == "xray" and protocol not in XRAY_PROTOCOLS:
         return jsonify({"error": f"Неверный протокол для Xray: {protocol}"}), 400
     if engine == "xray" and protocol not in ENABLED_XRAY_PROTOCOLS:
@@ -499,6 +520,21 @@ def create_inbound():
         )}), 400
     if engine == "naive" and protocol not in NAIVE_PROTOCOLS:
         return jsonify({"error": "Для NaiveProxy протокол должен быть 'naive'"}), 400
+    if engine == "ssh" and protocol not in SSH_PROTOCOLS:
+        return jsonify({"error": "Для SSH протокол должен быть 'ssh'"}), 400
+
+    # SSH-инбаунд может быть только ОДИН: за ним стоит системный sshd, а не
+    # процесс, который панель поднимает на выбранном порту. Второй инбаунд
+    # означал бы два разных желаемых состояния для одних и тех же учёток ОС —
+    # они бы затирали друг друга на каждом apply.
+    if engine == "ssh":
+        existing_ssh = Inbound.query.filter_by(engine="ssh").first()
+        if existing_ssh:
+            return jsonify({"error": (
+                f"SSH-инбаунд уже существует (тег '{existing_ssh.tag}'). "
+                f"За SSH стоит системный sshd — он один на сервер; "
+                f"добавляйте клиентов в существующий инбаунд."
+            )}), 409
 
     # NaiveProxy: domain обязателен и должен отличаться от panel_domain
     # (см. _validate_naive_inbound_domain).
@@ -525,6 +561,22 @@ def create_inbound():
         conflict = _check_port_conflicts(port_normalized, is_reality=is_reality)
         if conflict:
             return jsonify({"error": conflict}), 409
+    elif engine == "ssh":
+        # Порт СУЩЕСТВУЮЩЕГО sshd. Панель его не занимает и не меняет — только
+        # записывает, чтобы правила учёта трафика считали нужное плечо, а
+        # ссылка вела на верный порт. Проверки на конфликт нет намеренно:
+        # порт уже занят sshd, и это норма, а не коллизия.
+        raw_port = data.get("port")
+        if raw_port in (None, "", 0):
+            from app.core.ssh import DEFAULT_PORT as _SSH_DEFAULT_PORT
+            port_normalized = _SSH_DEFAULT_PORT
+        else:
+            try:
+                port_normalized = int(raw_port)
+            except (TypeError, ValueError):
+                return jsonify({"error": "Порт SSH — число от 1 до 65535"}), 400
+            if not (1 <= port_normalized <= 65535):
+                return jsonify({"error": "Порт SSH — число от 1 до 65535"}), 400
 
     # TLS-пути: только если tls_enabled=true (Reality использует другой
     # security и не требует cert/key файлов — поля tls_cert_path/key_path
