@@ -141,6 +141,68 @@ def _apply_for_engine(engine: str) -> tuple[bool, str]:
     return True, None
 
 
+def _validate_behind_caddy(
+    protocol: str,
+    transport: str,
+    domain: str | None,
+    tcfg: dict,
+) -> str | None:
+    """
+    Проверка режима «за настоящим сайтом» (transport_config.behind_caddy).
+    Возвращает текст ошибки или None.
+
+    Требования продиктованы тем, как этот режим устроен: Caddy на 443
+    отдаёт обычный сайт и заворачивает в Xray ровно один путь по loopback.
+
+    1. **Транспорт только ws/httpupgrade.** Caddy умеет проксировать
+       именно HTTP-апгрейд. У tcp/kcp/grpc проксирование через reverse_proxy
+       по пути не работает. splithttp (он же XHTTP) намеренно не разрешён:
+       его не поддерживает наш клиент — sing-box такого транспорта не знает
+       вовсе (в 1.13.14 есть http/ws/quic/grpc/httpupgrade).
+    2. **Домен обязателен и отличается от панельного** — иначе туннельный
+       путь и панель делят один хост.
+    3. **Reality несовместим** — это два взаимоисключающих способа
+       обращаться с TLS: тут его терминирует Caddy своим сертификатом.
+    4. **Путь обязателен и не должен угадываться.** Короткий или словарный
+       путь (/ws, /vpn, /api) находится активным зондированием, и тогда
+       весь смысл маскировки под сайт теряется.
+    """
+    if protocol != "vless":
+        return (
+            "Режим «за настоящим сайтом» поддержан только для VLESS — "
+            "клиент умеет именно его."
+        )
+    if transport not in {"ws", "httpupgrade"}:
+        return (
+            "Режим «за настоящим сайтом» требует транспорт ws или httpupgrade: "
+            "Caddy проксирует по пути только HTTP-апгрейд."
+        )
+    if tcfg.get("reality_public_key"):
+        return (
+            "Reality и режим «за настоящим сайтом» несовместимы: TLS здесь "
+            "терминирует Caddy сертификатом вашего домена. Выберите одно."
+        )
+    if not isinstance(domain, str) or not domain.strip():
+        return (
+            "Режим «за настоящим сайтом» требует домен — Caddy матчит route "
+            "по хосту и по пути."
+        )
+    panel_domain = Setting.get("panel_domain", "").strip()
+    if panel_domain and domain.strip().lower() == panel_domain.lower():
+        return (
+            f"Домен не может совпадать с панельным ({panel_domain}): "
+            f"туннельный путь и панель окажутся на одном хосте."
+        )
+    path = (tcfg.get("path") or "").strip()
+    if not path.startswith("/") or len(path.strip("/")) < 8:
+        return (
+            "Задайте неочевидный путь длиной от 8 символов, начиная с «/» "
+            "(например, /a7f3c1b9e2). Короткий или словарный путь находится "
+            "перебором, и маскировка под сайт перестаёт работать."
+        )
+    return None
+
+
 def _validate_naive_inbound_domain(domain: str | None) -> str | None:
     """
     Возвращает текст ошибки или None.
@@ -512,6 +574,17 @@ def create_inbound():
                 tcfg["reality_dest"] = "127.0.0.1:8443"
             else:
                 tcfg["reality_dest"] = "microsoft.com:443"
+
+    # Режим «за настоящим сайтом» (Caddy на 443 → Xray на loopback).
+    if engine == "xray" and tcfg.get("behind_caddy"):
+        err = _validate_behind_caddy(
+            protocol, transport, data.get("domain"), tcfg,
+        )
+        if err:
+            return jsonify({"error": err}), 400
+        # Свой TLS у Xray в этом режиме не нужен и вреден: сертификатом
+        # владеет Caddy, он же терминирует соединение.
+        data["tls_enabled"] = False
 
     # PRE-VALIDATION (синхронная): добавляем объект в сессию, делаем flush
     # (SQL INSERT без commit — данные видны внутри транзакции, но не снаружи),

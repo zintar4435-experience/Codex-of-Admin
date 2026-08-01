@@ -99,6 +99,21 @@ def _vless_link(client: Client, inbound: Inbound) -> str:
         "encryption": "none",
     }
     params.update(_transport_link_params(inbound, tcfg))
+    # Режим «за настоящим сайтом»: снаружи клиент идёт на ДОМЕН и порт 443
+    # (там Caddy), а не на внутренний порт Xray — тот слушает только loopback.
+    # TLS терминирует Caddy сертификатом нашего же домена, поэтому
+    # security=tls и sni=домен, без Reality.
+    from app.core.caddy import is_behind_caddy
+    if is_behind_caddy(inbound):
+        params["security"] = "tls"
+        params["sni"] = inbound.domain or ""
+        # Host-заголовок для ws/httpupgrade: если не задан явно, это наш же
+        # домен — иначе Caddy не сматчит route по host.
+        if not tcfg.get("host"):
+            params["host"] = inbound.domain or ""
+        qs = urllib.parse.urlencode(params)
+        name = urllib.parse.quote(client.name or inbound.tag)
+        return f"vless://{client.uuid}@{inbound.domain}:443?{qs}#{name}"
     if inbound.tls_enabled:
         params["security"] = "tls"
         params["sni"] = inbound.domain or Setting.get("panel_domain", "")

@@ -254,7 +254,7 @@ def _build_vless_inbound(inbound: Inbound) -> dict:
             entry["flow"] = c.flow
         clients.append(entry)
 
-    return {
+    conf = {
         "tag": inbound.tag,
         "port": inbound.port,
         "protocol": "vless",
@@ -266,6 +266,14 @@ def _build_vless_inbound(inbound: Inbound) -> dict:
         "streamSettings": _build_stream_settings(inbound),
         "sniffing": {"enabled": True, "destOverride": ["http", "tls", "quic"]},
     }
+    # Режим «за настоящим сайтом»: наружу порт не открываем вовсе — TLS
+    # терминирует Caddy на 443 и заворачивает к нам один путь по loopback
+    # (см. caddy.is_behind_caddy). Без этого Xray висел бы отдельным
+    # открытым портом, а это и есть та аномалия, от которой уходим.
+    from app.core.caddy import is_behind_caddy
+    if is_behind_caddy(inbound):
+        conf["listen"] = "127.0.0.1"
+    return conf
 
 
 def _build_trojan_inbound(inbound: Inbound) -> dict:

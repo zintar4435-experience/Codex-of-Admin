@@ -22,6 +22,12 @@ CADDY_API = "http://127.0.0.1:2019"
 MAX_LINES = 100_000
 PANEL_BACKEND_ADDR = "http://127.0.0.1:5000"
 
+# Корень сайта-обманки для режима «Xray за настоящим сайтом» (см.
+# is_behind_caddy). Домен обязан отвечать чем-то осмысленным на всё, кроме
+# туннельного пути, иначе «сертификат есть, а сайта нет» — сама по себе
+# аномалия для активного зондирования. Наполнение каталога — на владельце.
+DECOY_SITE_ROOT = "/var/www/decoy"
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -195,6 +201,84 @@ def _build_naive_catchall_route(inbounds: list[Inbound]) -> dict | None:
 # (app/api/inbounds.py: _validate_naive_inbound_domain).
 
 
+def is_behind_caddy(inbound: Inbound) -> bool:
+    """
+    True — Xray-инбаунд работает В РЕЖИМЕ «за настоящим сайтом»:
+    Xray слушает на loopback БЕЗ своего TLS, а Caddy на 443 отдаёт обычный
+    сайт и заворачивает в Xray ровно один путь.
+
+    Зачем режим. С 2026 ТСПУ оценивает подозрительность не по протоколу, а
+    по совокупности: репутация IP/ASN + правдоподобие связки домен↔IP↔
+    сертификат + форма поведения соединения. Reality с ЧУЖИМ доменом-маской
+    даёт расхождение «домен одной сети, адрес другой» и само по себе
+    добавляет очков. Здесь домен, сертификат и IP — свои и согласованы, а
+    снаружи трафик неотличим от обращения к сайту, который реально работает.
+
+    Флаг живёт в transport_config, а не отдельной колонкой: миграции БД для
+    этого не нужно, а старые инбаунды просто не имеют ключа → False.
+    """
+    return bool(inbound.get_transport_config().get("behind_caddy"))
+
+
+def _xray_web_inbounds() -> list[Inbound]:
+    """Активные Xray-инбаунды в режиме «за настоящим сайтом»."""
+    return [
+        ib for ib in Inbound.query.filter_by(engine="xray", enabled=True).all()
+        if is_behind_caddy(ib) and ib.domain and ib.port
+    ]
+
+
+def _build_xray_web_route(inbound: Inbound) -> dict:
+    """
+    Route: «этот домен + этот путь» → Xray на loopback.
+
+    Матч по host И path одновременно (в JSON-формате Caddy объекты внутри
+    одного элемента match — это AND). terminal=True: дальше route'ы не
+    просматриваются, чтобы туннельный путь не утёк в сайт-обманку.
+
+    Путь обязан быть достаточно неочевидным: он не должен угадываться
+    перебором, иначе активное зондирование отличит наш сервер от обычного
+    сайта. Проверка на это — в API при создании инбаунда.
+    """
+    tcfg = inbound.get_transport_config()
+    path = tcfg.get("path") or "/"
+    if not path.startswith("/"):
+        path = "/" + path
+    return {
+        "match": [{"host": [inbound.domain], "path": [path]}],
+        "handle": [
+            {
+                "handler": "reverse_proxy",
+                # Xray слушает на loopback без TLS — см. _build_stream_settings
+                # и xray.py: в этом режиме TLS терминирует Caddy.
+                "upstreams": [{"dial": f"127.0.0.1:{inbound.port}"}],
+            }
+        ],
+        "terminal": True,
+    }
+
+
+def _build_decoy_site_route(domains: list[str]) -> dict:
+    """
+    Сайт-обманка: всё, что не попало в туннельный путь, отдаётся как
+    обычный статический сайт.
+
+    Без него домен на всё, кроме одного пути, отвечал бы 404/пустотой — а
+    это ровно та аномалия, которую ищет активное зондирование: «сертификат
+    есть, сайта нет». Файлы кладутся в DECOY_SITE_ROOT (наполнение —
+    забота владельца; пустой каталог лучше, чем отсутствие маршрута, но
+    настоящий сайт лучше пустого каталога).
+    """
+    return {
+        "match": [{"host": domains}],
+        "handle": [
+            {"handler": "encode", "encodings": {"gzip": {}}, "prefer": ["gzip"]},
+            {"handler": "file_server", "root": DECOY_SITE_ROOT},
+        ],
+        "terminal": True,
+    }
+
+
 def _panel_handler() -> dict:
     """Caddy reverse_proxy handler pointing to the panel's gunicorn."""
     return {
@@ -366,8 +450,37 @@ def generate_caddy_config() -> dict:
     #    Сюда попадает всё, что не было поймано panel-route'ом.
     # Обратный порядок ломает панель: catch-all naive перехватил бы и
     # запросы на panel_domain.
+    # Xray-инбаунды «за настоящим сайтом»: их домены тоже участвуют в ACME.
+    web_ibs = _xray_web_inbounds()
+    web_domains: list[str] = []
+    for ib in web_ibs:
+        if panel_domain and ib.domain == panel_domain:
+            log.warning(
+                "Xray inbound id=%s (tag=%r) пропущен: domain совпадает с "
+                "panel_domain=%r. Режим «за сайтом» требует отдельного домена, "
+                "иначе туннельный путь и панель делят один хост.",
+                ib.id, ib.tag, panel_domain,
+            )
+            continue
+        _add_domain(ib.domain)
+        if ib.domain not in web_domains:
+            web_domains.append(ib.domain)
+
     if panel_domain:
         routes.append(_build_panel_route(panel_domain))
+
+    # ── Xray «за сайтом» — ДО naive catch-all ──────────────────────────
+    # Порядок обязателен: naive-route ловит по методу CONNECT без host-match
+    # и, стоя раньше, перехватил бы наши обычные GET/Upgrade-запросы.
+    # Сначала точный матч «домен + туннельный путь» (terminal), затем
+    # сайт-обманка на тот же домен (terminal) — то есть всё остальное на
+    # этом домене выглядит как обычный сайт, а не как дыра.
+    for ib in web_ibs:
+        if panel_domain and ib.domain == panel_domain:
+            continue
+        routes.append(_build_xray_web_route(ib))
+    if web_domains:
+        routes.append(_build_decoy_site_route(web_domains))
 
     if valid_naive_ibs:
         naive_route = _build_naive_catchall_route(valid_naive_ibs)
