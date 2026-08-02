@@ -411,6 +411,16 @@ def _ensure_schema():
                         {"tok": str(_uuid.uuid4()), "id": cid},
                     )
 
+    # --- clients: ключевая пара для SSH-узлов ---
+    # У клиентов остальных движков остаются NULL и ни на что не влияют.
+    if "clients" in inspector.get_table_names():
+        existing = {c["name"] for c in inspector.get_columns("clients")}
+        with db.engine.begin() as conn:
+            if "ssh_public_key" not in existing:
+                conn.execute(text("ALTER TABLE clients ADD COLUMN ssh_public_key TEXT"))
+            if "ssh_private_key" not in existing:
+                conn.execute(text("ALTER TABLE clients ADD COLUMN ssh_private_key TEXT"))
+
     # --- inbounds: одноразовый сброс tls_acme для Xray (правка #3) ---
     # Опция Auto-ACME для Xray-инбаундов никогда не работала (путь
     # /etc/ssl/caddy/{domain}/cert.pem не существует). Старые записи могли

@@ -58,6 +58,12 @@
     <div class="ib-col-head"><i class="bi bi-shield-lock"></i> NaiveProxy inbounds <span class="count" id="cnt-naive">0</span></div>
     <div id="col-naive"></div>
   </div>
+  <!-- SSH-колонка показывается только когда SSH-инбаунд заведён: пустая
+       третья колонка на каждой установке — лишний шум. -->
+  <div id="col-ssh-wrap" class="hidden">
+    <div class="ib-col-head"><i class="bi bi-terminal"></i> SSH inbounds <span class="count" id="cnt-ssh">0</span></div>
+    <div id="col-ssh"></div>
+  </div>
 </div>
 
 <!-- Empty state: показывается, когда в БД ни одного inbound. Главная задача —
@@ -124,6 +130,7 @@
       <select class="form-control" id="f-engine" onchange="onEngineChange()">
         <option value="xray">Xray</option>
         <option value="naive">NaiveProxy</option>
+        <option value="ssh">SSH</option>
       </select>
     </div>
 
@@ -261,6 +268,32 @@
         <label class="form-label">probe_resistance secret URL</label>
         <input type="text" class="form-control" id="f-probe" placeholder="secret-path-12345">
         <div class="form-text">Скрытый URL для probe resistance. Оставьте пустым для отключения.</div>
+      </div>
+    </div>
+
+    <!-- SSH: за инбаундом стоит СИСТЕМНЫЙ sshd, панель его не поднимает и не
+         настраивает. Поэтому полей почти нет — только порт, на котором sshd
+         уже слушает, и он же нужен правилам учёта трафика. -->
+    <div id="section-ssh" class="hidden">
+      <div class="form-group">
+        <label class="form-label">Порт sshd</label>
+        <input type="number" class="form-control" id="f-ssh-port" placeholder="22" value="22">
+        <div class="form-text">
+          Порт, на котором УЖЕ слушает системный sshd. Панель его не занимает и
+          не меняет — только считает по нему трафик и подставляет в ссылку.
+        </div>
+      </div>
+      <div class="form-text" style="line-height:1.5;margin-bottom:12px">
+        <b>Чем полезен SSH.</b> По нему не бьёт объёмная заморозка соединений,
+        под которую попадают TLS-протоколы: широко резать SSH дорого, на нём
+        живут хостинги и разработчики.<br>
+        <b>Чего он НЕ делает.</b> Не маскируется: соединение начинается с
+        открытой строки версии, и DPI видит с первого байта, что это SSH. Это
+        запасная нога, ломающаяся по другим причинам, а не замена основному
+        каналу. UDP через SSH не ходит — приложения откатываются на TCP.<br>
+        <b>Как применяется.</b> Учётки заводит root-скрипт по таймеру, поэтому
+        изменения (в т.ч. отключение по лимиту) доезжают в течение минуты, а
+        не мгновенно.
       </div>
     </div>
 
@@ -437,20 +470,29 @@ function render() {
 
   const xray  = inbounds.filter(i => i.engine === 'xray');
   const naive = inbounds.filter(i => i.engine === 'naive');
+  const ssh   = inbounds.filter(i => i.engine === 'ssh');
   document.getElementById('cnt-xray').textContent  = xray.length;
   document.getElementById('cnt-naive').textContent = naive.length;
+  document.getElementById('cnt-ssh').textContent   = ssh.length;
   document.getElementById('col-xray').innerHTML  = renderColumn(xray,  'Нет Xray-inbounds');
   document.getElementById('col-naive').innerHTML = renderColumn(naive, 'Нет NaiveProxy-inbounds');
+  document.getElementById('col-ssh').innerHTML   = renderColumn(ssh,   'Нет SSH-inbounds');
+  document.getElementById('col-ssh-wrap').classList.toggle('hidden', ssh.length === 0);
 }
 
 function renderColumn(list, emptyMsg) {
   if (!list.length) return `<div class="card ib-empty-col">${emptyMsg}</div>`;
   return list.map(ib => {
     const portDomain = ib.engine === 'naive' ? (ib.domain || ':443') : (ib.port || '—');
-    const transport  = ib.engine === 'xray' ? (ib.transport || 'tcp') : 'https';
-    const tlsBadge = (ib.tls_enabled || ib.engine === 'naive')
-      ? '<span class="badge badge-active"><i class="bi bi-lock-fill"></i> TLS</span>'
-      : '<span class="badge badge-inactive">plain</span>';
+    const transport  = ib.engine === 'xray' ? (ib.transport || 'tcp')
+                     : ib.engine === 'ssh'  ? 'ssh' : 'https';
+    // У SSH бейджа TLS быть не должно: там своё шифрование, а не TLS, и
+    // ярлык «TLS» врал бы про то, как узел выглядит на проводе. Пишем честно.
+    const tlsBadge = ib.engine === 'ssh'
+      ? '<span class="badge badge-active"><i class="bi bi-key-fill"></i> ключи</span>'
+      : (ib.tls_enabled || ib.engine === 'naive')
+        ? '<span class="badge badge-active"><i class="bi bi-lock-fill"></i> TLS</span>'
+        : '<span class="badge badge-inactive">plain</span>';
     const statusBadge = ib.enabled
       ? '<span class="badge badge-active">active</span>'
       : '<span class="badge badge-inactive">disabled</span>';
@@ -739,11 +781,18 @@ document.getElementById('modal-client').addEventListener('click', e => {
 
 function onEngineChange() {
   const engine = document.getElementById('f-engine').value;
-  document.getElementById('section-xray').classList.toggle('hidden', engine === 'naive');
-  document.getElementById('section-naive').classList.toggle('hidden', engine === 'xray');
+  // Каждая секция видна ТОЛЬКО у своего движка. Раньше условия были парными
+  // ('скрыть xray если naive'), и с появлением третьего движка такая пара
+  // показала бы обе чужие секции сразу.
+  document.getElementById('section-xray').classList.toggle('hidden', engine !== 'xray');
+  document.getElementById('section-naive').classList.toggle('hidden', engine !== 'naive');
+  document.getElementById('section-ssh').classList.toggle('hidden', engine !== 'ssh');
   if (engine === 'naive') {
     document.getElementById('f-protocol').value = 'naive';
   }
+  // Для ssh f-protocol не трогаем: в этом select'е нет опции 'ssh', и
+  // присваивание молча оставило бы пустое значение. Протокол для ssh
+  // подставляется в saveInbound константой.
 }
 
 function resetForm() {
@@ -756,6 +805,7 @@ function resetForm() {
   document.getElementById('f-engine').value = 'xray';
   document.getElementById('f-protocol').value = 'vless';
   document.getElementById('f-transport').value = 'tcp';
+  document.getElementById('f-ssh-port').value = '22';
   document.getElementById('f-tls').checked = false;
   showRealitySection(false);
   onEngineChange();
@@ -989,8 +1039,11 @@ async function editInbound(id) {
   editId = id;
   document.getElementById('modal-create-title').textContent = 'Редактировать: ' + ib.tag;
   document.getElementById('f-engine').value = ib.engine;
-  document.getElementById('f-protocol').value = ib.protocol;
+  // Для ssh протокола нет в этом select'е — не присваиваем, иначе значение
+  // молча станет пустым и уедет в сохранение.
+  if (ib.engine !== 'ssh') document.getElementById('f-protocol').value = ib.protocol;
   document.getElementById('f-port').value = ib.port || '';
+  document.getElementById('f-ssh-port').value = ib.engine === 'ssh' ? (ib.port || 22) : 22;
   document.getElementById('f-domain').value = ib.domain || '';
   document.getElementById('f-tag').value = ib.tag;
   document.getElementById('f-transport').value = ib.transport || 'tcp';
@@ -1054,11 +1107,19 @@ async function saveInbound() {
     }
   }
 
+  const protocolFor = { naive: 'naive', ssh: 'ssh' };
+  // У SSH порт берётся из своего поля: f-port живёт в xray-секции, которая
+  // при engine=ssh скрыта и пуста — оттуда приехал бы null, и учёт трафика
+  // считал бы не по тому порту.
+  const portFor = engine === 'ssh'
+    ? (parseInt(document.getElementById('f-ssh-port').value) || 22)
+    : (parseInt(document.getElementById('f-port').value) || null);
+
   const body = {
     engine,
     tag: document.getElementById('f-tag').value.trim(),
-    protocol: engine === 'naive' ? 'naive' : document.getElementById('f-protocol').value,
-    port: parseInt(document.getElementById('f-port').value) || null,
+    protocol: protocolFor[engine] || document.getElementById('f-protocol').value,
+    port: portFor,
     domain: document.getElementById('f-domain').value.trim() || null,
     tls_enabled: document.getElementById('f-tls').checked,
     // tls_acme больше не отправляем из UI — поле в БД остаётся для совместимости,

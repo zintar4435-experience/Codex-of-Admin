@@ -116,7 +116,7 @@ ENV_FILE="${PANEL_DIR}/instance/.env"
 # Делаем это в самом начале — до любых системных изменений.
 # Иначе скрипт молча устанавливает Caddy/Xray и падает позже на pip.
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-for required in requirements.txt run.py app; do
+for required in requirements.txt run.py app server/coc-ssh-sync.py; do
     if [[ ! -e "${SCRIPT_DIR}/${required}" ]]; then
         error "В каталоге ${SCRIPT_DIR} отсутствует '${required}'.
 Запустите install.sh из корня распакованного архива
@@ -463,6 +463,97 @@ SUDOERS
 run chmod 440 /etc/sudoers.d/proxypanel-xray-update
 run visudo -c -f /etc/sudoers.d/proxypanel-xray-update \
     || { rm -f /etc/sudoers.d/proxypanel-xray-update; error "Ошибка синтаксиса sudoers-файла"; }
+
+# ── SSH-движок: запертые туннельные учётки + учёт трафика ────
+#
+# ЗАЧЕМ. SSH — единственный протокол, по которому не бьёт объёмная заморозка
+# соединений (net4people #490: SSH и SFTP из-под неё исключены). Маскировки в
+# нём нет никакой — соединение начинается с открытой строки версии; это
+# запасная нога, которая ломается по другим причинам, чем TLS-протоколы.
+#
+# РАЗДЕЛЕНИЕ ПРАВ. Панель работает от непривилегированного proxypanel и root'а
+# не получает: она пишет желаемое состояние в JSON, а приводит систему к нему
+# root-скрипт coc-ssh-sync по таймеру. Дать панели useradd/nft означало бы
+# превратить любую её компрометацию в root на хосте — ровно то, от чего мы
+# отказались с файрволом (см. app/core/firewall.py).
+info "Настройка SSH-движка..."
+
+# Каталог обмена: панель пишет state.json, root-скрипт — traffic.json.
+run mkdir -p /var/lib/proxy-panel/ssh /var/lib/coc-ssh
+run chown root:"${PANEL_USER}" /var/lib/proxy-panel/ssh
+run chmod 770 /var/lib/proxy-panel/ssh
+# Домашние каталоги туннельных учёток: внутрь ходит только sshd и root-скрипт.
+run chown root:root /var/lib/coc-ssh
+run chmod 751 /var/lib/coc-ssh
+
+run getent group cocssh >/dev/null || run groupadd --system cocssh
+
+# Запирающий блок sshd: учётки группы cocssh получают ТОЛЬКО проброс портов.
+# Отдельный файл в sshd_config.d, чтобы не трогать основной конфиг админа.
+write_file /etc/ssh/sshd_config.d/50-coc-tunnel.conf <<'SSHDCONF'
+# Codex of Connect: туннельные учётки (группа cocssh).
+# Только проброс TCP-портов: ни шелла, ни PTY, ни agent/X11-forwarding.
+# Файл ставится install.sh; правки здесь перезапишутся при обновлении.
+Match Group cocssh
+    PermitTTY no
+    X11Forwarding no
+    AllowAgentForwarding no
+    AllowStreamLocalForwarding no
+    PermitTunnel no
+    AllowTcpForwarding yes
+    # Шелл-сессию, если её всё же откроют, обрываем немедленно. Проброс
+    # портов идёт отдельными каналами и от ForceCommand не зависит.
+    ForceCommand /usr/sbin/nologin
+    # Пароли этим учёткам не заведены вовсе; выключаем явно, чтобы перебор
+    # на публичном 22-м порту даже не начинался.
+    PasswordAuthentication no
+    KbdInteractiveAuthentication no
+SSHDCONF
+run chmod 644 /etc/ssh/sshd_config.d/50-coc-tunnel.conf
+
+# Проверяем конфиг ПЕРЕД перезагрузкой sshd: с битым конфигом sshd не
+# поднимется, и сервер останется без входа вообще.
+if ! $DRY_RUN; then
+    if sshd -t 2>/dev/null; then
+        systemctl reload ssh 2>/dev/null || systemctl reload sshd 2>/dev/null || true
+    else
+        rm -f /etc/ssh/sshd_config.d/50-coc-tunnel.conf
+        warn "sshd отклонил конфиг туннельных учёток — блок удалён, sshd не тронут"
+    fi
+fi
+
+# Сам синхронизатор. Ставим из каталога установщика (доверенный источник), а
+# НЕ из ${PANEL_DIR}: туда пишет панель, и запуск оттуда root'ом обесценил бы
+# разделение прав. root:root 755 — по той же причине, что и остальное в
+# /usr/local/bin.
+run install -m 755 -o root -g root \
+    "${SCRIPT_DIR}/server/coc-ssh-sync.py" /usr/local/bin/coc-ssh-sync.py
+
+write_file /etc/systemd/system/coc-ssh-sync.service <<'EOF'
+[Unit]
+Description=Codex of Connect — синхронизация SSH-учёток и счётчиков трафика
+After=network.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/coc-ssh-sync.py
+EOF
+
+write_file /etc/systemd/system/coc-ssh-sync.timer <<'EOF'
+[Unit]
+Description=Codex of Connect — таймер синхронизации SSH
+
+[Timer]
+OnBootSec=30s
+OnUnitActiveSec=60s
+AccuracySec=5s
+
+[Install]
+WantedBy=timers.target
+EOF
+
+run systemctl daemon-reload
+run systemctl enable --now coc-ssh-sync.timer
 
 # ── Сторож (watchdog): авто-восстановление панели ────────────
 # Раз в 2 минуты проверяет здоровье сервисов и панели. При реальном сбое

@@ -18,6 +18,12 @@ bp = Blueprint("inbounds", __name__)
 
 XRAY_PROTOCOLS = {"vmess", "vless", "trojan", "shadowsocks", "socks", "http", "dokodemo"}
 NAIVE_PROTOCOLS = {"naive"}
+SSH_PROTOCOLS = {"ssh"}
+
+# Движки, которые вообще можно создать. Отдельный список, потому что engine
+# приходит из запроса и раньше любая опечатка молча создавала инбаунд, который
+# ни один apply не обслуживает.
+VALID_ENGINES = {"xray", "naive", "ssh"}
 
 # Протоколы, доступные для СОЗДАНИЯ новых инбаундов. Пока в проде проверены
 # только VLESS (вкл. Reality) и NaiveProxy — остальные временно скрыты в UI и
@@ -89,6 +95,15 @@ def _apply_for_engine(engine: str) -> tuple[bool, str]:
         ok, msg = apply_caddy_config()
         return ok, msg if not ok else None
 
+    # SSH ни Caddy, ни Xray не касается: панель только записывает желаемое
+    # состояние учёток, а приводит систему к нему root-скрипт по таймеру
+    # (см. core/ssh.py — почему именно так). Значит apply здесь мгновенный, а
+    # реальное изменение доезжает в течение одного тика таймера.
+    if engine == "ssh":
+        from app.core.ssh import apply_ssh_config
+        ok, msg = apply_ssh_config()
+        return ok, msg
+
     # engine == "xray" — сначала pre-validate, потом apply в нужном порядке.
 
     # PRE-VALIDATION: гоняем будущий xray-конфиг через `xray run -test`
@@ -139,6 +154,68 @@ def _apply_for_engine(engine: str) -> tuple[bool, str]:
     if not ok_c:
         return False, f"Caddy: {msg_c}"
     return True, None
+
+
+def _validate_behind_caddy(
+    protocol: str,
+    transport: str,
+    domain: str | None,
+    tcfg: dict,
+) -> str | None:
+    """
+    Проверка режима «за настоящим сайтом» (transport_config.behind_caddy).
+    Возвращает текст ошибки или None.
+
+    Требования продиктованы тем, как этот режим устроен: Caddy на 443
+    отдаёт обычный сайт и заворачивает в Xray ровно один путь по loopback.
+
+    1. **Транспорт только ws/httpupgrade.** Caddy умеет проксировать
+       именно HTTP-апгрейд. У tcp/kcp/grpc проксирование через reverse_proxy
+       по пути не работает. splithttp (он же XHTTP) намеренно не разрешён:
+       его не поддерживает наш клиент — sing-box такого транспорта не знает
+       вовсе (в 1.13.14 есть http/ws/quic/grpc/httpupgrade).
+    2. **Домен обязателен и отличается от панельного** — иначе туннельный
+       путь и панель делят один хост.
+    3. **Reality несовместим** — это два взаимоисключающих способа
+       обращаться с TLS: тут его терминирует Caddy своим сертификатом.
+    4. **Путь обязателен и не должен угадываться.** Короткий или словарный
+       путь (/ws, /vpn, /api) находится активным зондированием, и тогда
+       весь смысл маскировки под сайт теряется.
+    """
+    if protocol != "vless":
+        return (
+            "Режим «за настоящим сайтом» поддержан только для VLESS — "
+            "клиент умеет именно его."
+        )
+    if transport not in {"ws", "httpupgrade"}:
+        return (
+            "Режим «за настоящим сайтом» требует транспорт ws или httpupgrade: "
+            "Caddy проксирует по пути только HTTP-апгрейд."
+        )
+    if tcfg.get("reality_public_key"):
+        return (
+            "Reality и режим «за настоящим сайтом» несовместимы: TLS здесь "
+            "терминирует Caddy сертификатом вашего домена. Выберите одно."
+        )
+    if not isinstance(domain, str) or not domain.strip():
+        return (
+            "Режим «за настоящим сайтом» требует домен — Caddy матчит route "
+            "по хосту и по пути."
+        )
+    panel_domain = Setting.get("panel_domain", "").strip()
+    if panel_domain and domain.strip().lower() == panel_domain.lower():
+        return (
+            f"Домен не может совпадать с панельным ({panel_domain}): "
+            f"туннельный путь и панель окажутся на одном хосте."
+        )
+    path = (tcfg.get("path") or "").strip()
+    if not path.startswith("/") or len(path.strip("/")) < 8:
+        return (
+            "Задайте неочевидный путь длиной от 8 символов, начиная с «/» "
+            "(например, /a7f3c1b9e2). Короткий или словарный путь находится "
+            "перебором, и маскировка под сайт перестаёт работать."
+        )
+    return None
 
 
 def _validate_naive_inbound_domain(domain: str | None) -> str | None:
@@ -428,6 +505,12 @@ def create_inbound():
     if Inbound.query.filter_by(tag=tag).first():
         return jsonify({"error": f"Тег '{tag}' уже существует"}), 409
 
+    if engine not in VALID_ENGINES:
+        return jsonify({"error": (
+            f"Неизвестный движок: {engine}. Допустимы: "
+            f"{', '.join(sorted(VALID_ENGINES))}"
+        )}), 400
+
     if engine == "xray" and protocol not in XRAY_PROTOCOLS:
         return jsonify({"error": f"Неверный протокол для Xray: {protocol}"}), 400
     if engine == "xray" and protocol not in ENABLED_XRAY_PROTOCOLS:
@@ -437,6 +520,21 @@ def create_inbound():
         )}), 400
     if engine == "naive" and protocol not in NAIVE_PROTOCOLS:
         return jsonify({"error": "Для NaiveProxy протокол должен быть 'naive'"}), 400
+    if engine == "ssh" and protocol not in SSH_PROTOCOLS:
+        return jsonify({"error": "Для SSH протокол должен быть 'ssh'"}), 400
+
+    # SSH-инбаунд может быть только ОДИН: за ним стоит системный sshd, а не
+    # процесс, который панель поднимает на выбранном порту. Второй инбаунд
+    # означал бы два разных желаемых состояния для одних и тех же учёток ОС —
+    # они бы затирали друг друга на каждом apply.
+    if engine == "ssh":
+        existing_ssh = Inbound.query.filter_by(engine="ssh").first()
+        if existing_ssh:
+            return jsonify({"error": (
+                f"SSH-инбаунд уже существует (тег '{existing_ssh.tag}'). "
+                f"За SSH стоит системный sshd — он один на сервер; "
+                f"добавляйте клиентов в существующий инбаунд."
+            )}), 409
 
     # NaiveProxy: domain обязателен и должен отличаться от panel_domain
     # (см. _validate_naive_inbound_domain).
@@ -463,6 +561,22 @@ def create_inbound():
         conflict = _check_port_conflicts(port_normalized, is_reality=is_reality)
         if conflict:
             return jsonify({"error": conflict}), 409
+    elif engine == "ssh":
+        # Порт СУЩЕСТВУЮЩЕГО sshd. Панель его не занимает и не меняет — только
+        # записывает, чтобы правила учёта трафика считали нужное плечо, а
+        # ссылка вела на верный порт. Проверки на конфликт нет намеренно:
+        # порт уже занят sshd, и это норма, а не коллизия.
+        raw_port = data.get("port")
+        if raw_port in (None, "", 0):
+            from app.core.ssh import DEFAULT_PORT as _SSH_DEFAULT_PORT
+            port_normalized = _SSH_DEFAULT_PORT
+        else:
+            try:
+                port_normalized = int(raw_port)
+            except (TypeError, ValueError):
+                return jsonify({"error": "Порт SSH — число от 1 до 65535"}), 400
+            if not (1 <= port_normalized <= 65535):
+                return jsonify({"error": "Порт SSH — число от 1 до 65535"}), 400
 
     # TLS-пути: только если tls_enabled=true (Reality использует другой
     # security и не требует cert/key файлов — поля tls_cert_path/key_path
@@ -512,6 +626,17 @@ def create_inbound():
                 tcfg["reality_dest"] = "127.0.0.1:8443"
             else:
                 tcfg["reality_dest"] = "microsoft.com:443"
+
+    # Режим «за настоящим сайтом» (Caddy на 443 → Xray на loopback).
+    if engine == "xray" and tcfg.get("behind_caddy"):
+        err = _validate_behind_caddy(
+            protocol, transport, data.get("domain"), tcfg,
+        )
+        if err:
+            return jsonify({"error": err}), 400
+        # Свой TLS у Xray в этом режиме не нужен и вреден: сертификатом
+        # владеет Caddy, он же терминирует соединение.
+        data["tls_enabled"] = False
 
     # PRE-VALIDATION (синхронная): добавляем объект в сессию, делаем flush
     # (SQL INSERT без commit — данные видны внутри транзакции, но не снаружи),

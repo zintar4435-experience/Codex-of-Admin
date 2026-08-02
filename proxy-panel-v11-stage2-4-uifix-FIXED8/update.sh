@@ -317,6 +317,93 @@ EOF
     info "  ✓ cert-bridge готов"
 }
 
+ensure_ssh_engine() {
+    # Раскатывает SSH-движок на уже работающих установках. Идемпотентно.
+    #
+    # ЗАЧЕМ SSH. Это единственный протокол, по которому не бьёт объёмная
+    # заморозка соединений (net4people #490). Маскировки в нём нет — он нужен
+    # как запасная нога, которая ломается по другим причинам, чем TLS.
+    #
+    # РАЗДЕЛЕНИЕ ПРАВ. Панель (proxypanel) только пишет желаемое состояние в
+    # /var/lib/proxy-panel/ssh/state.json; учётки заводит и счётчики считает
+    # root-скрипт по таймеру. Панели никаких новых sudo-прав НЕ выдаётся.
+    local src="${SCRIPT_DIR}/server/coc-ssh-sync.py"
+    if [[ ! -f "${src}" ]]; then
+        warn "server/coc-ssh-sync.py нет в архиве — SSH-движок пропущен"
+        return 0
+    fi
+
+    mkdir -p /var/lib/proxy-panel/ssh /var/lib/coc-ssh
+    chown root:"${PANEL_USER}" /var/lib/proxy-panel/ssh
+    chmod 770 /var/lib/proxy-panel/ssh
+    chown root:root /var/lib/coc-ssh
+    chmod 751 /var/lib/coc-ssh
+
+    getent group cocssh >/dev/null || groupadd --system cocssh
+
+    # sshd: запирающий Match-блок для туннельных учёток.
+    mkdir -p /etc/ssh/sshd_config.d
+    local sshd_conf="/etc/ssh/sshd_config.d/50-coc-tunnel.conf"
+    local sshd_tmp="${sshd_conf}.new"
+    cat > "${sshd_tmp}" <<'SSHDCONF'
+# Codex of Connect: туннельные учётки (группа cocssh).
+# Только проброс TCP-портов: ни шелла, ни PTY, ни agent/X11-forwarding.
+# Файл ставится update.sh; правки здесь перезапишутся при обновлении.
+Match Group cocssh
+    PermitTTY no
+    X11Forwarding no
+    AllowAgentForwarding no
+    AllowStreamLocalForwarding no
+    PermitTunnel no
+    AllowTcpForwarding yes
+    ForceCommand /usr/sbin/nologin
+    PasswordAuthentication no
+    KbdInteractiveAuthentication no
+SSHDCONF
+    chmod 644 "${sshd_tmp}"
+    mv "${sshd_tmp}" "${sshd_conf}"
+    # Проверяем ПЕРЕД reload: с битым конфигом sshd не поднимется, и сервер
+    # останется без входа вообще.
+    if sshd -t 2>/dev/null; then
+        systemctl reload ssh 2>/dev/null || systemctl reload sshd 2>/dev/null || true
+    else
+        rm -f "${sshd_conf}"
+        warn "sshd отклонил конфиг туннельных учёток — блок удалён, sshd не тронут"
+    fi
+
+    # Ставим из каталога установщика, а НЕ из ${PANEL_DIR}: туда пишет панель,
+    # и запуск оттуда root'ом обесценил бы разделение прав.
+    install -m 755 -o root -g root "${src}" /usr/local/bin/coc-ssh-sync.py
+
+    cat > /etc/systemd/system/coc-ssh-sync.service <<'EOF'
+[Unit]
+Description=Codex of Connect — синхронизация SSH-учёток и счётчиков трафика
+After=network.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/coc-ssh-sync.py
+EOF
+
+    cat > /etc/systemd/system/coc-ssh-sync.timer <<'EOF'
+[Unit]
+Description=Codex of Connect — таймер синхронизации SSH
+
+[Timer]
+OnBootSec=30s
+OnUnitActiveSec=60s
+AccuracySec=5s
+
+[Install]
+WantedBy=timers.target
+EOF
+
+    systemctl daemon-reload
+    systemctl enable --now coc-ssh-sync.timer >/dev/null 2>&1 || true
+    info "SSH-движок: синхронизатор и таймер установлены"
+}
+
+
 ensure_watchdog() {
     # Устанавливает сторож (авто-восстановление) на существующих установках:
     # скрипт proxy-panel-watchdog.sh + cron.d каждые 2 минуты. Идемпотентно —
@@ -711,6 +798,7 @@ PYCHECK
     ensure_scheduler_unit
     ensure_panel_workers
     ensure_xray_cert_bridge
+    ensure_ssh_engine
     ensure_watchdog
 
     info "Запуск сервиса proxy-panel..."
