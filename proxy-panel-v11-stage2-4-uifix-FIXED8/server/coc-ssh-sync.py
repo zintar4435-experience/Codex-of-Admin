@@ -70,6 +70,14 @@ HOME_ROOT = "/var/lib/coc-ssh"
 USER_GROUP = "cocssh"
 NFT_TABLE = "coc_ssh"
 
+# Имя пустой цепочки-метки, обозначающей ФОРМУ счётных правил. Входит в
+# отпечаток ruleset: пока имя совпадает, таблица считается актуальной.
+# ПОДНИМАТЬ НОМЕР при любой правке формы правил (плечо, набор матчей,
+# направления) — иначе на уже работающих серверах правила останутся старыми,
+# потому что набор комментариев у них не меняется. Именно так и произошло
+# 02.08.2026 при смене плеча учёта.
+RULES_SCHEME_CHAIN = "scheme_v2"
+
 # Пространство ct mark для наших меток: старший байт 0x0C выделен под этот
 # скрипт, младшие — uid. Так метки не сталкиваются с чужими (ufw, docker,
 # policy-routing), которые обычно живут в малых значениях.
@@ -372,16 +380,30 @@ def build_ruleset(uids: dict[str, int], port: int,
         "        type filter hook input priority 0; policy accept;",
         *in_rules,
         "    }",
+        # Метка ФОРМЫ правил. Пустая обычная цепочка (без hook) — к ней ничто
+        # не обращается, на трафик она не влияет и стоит ноль.
+        #
+        # Зачем. Отпечаток ниже сравнивает набор комментариев вида
+        # «cocssh:<учётка>:<направление>». Когда 02.08.2026 у правил сменилось
+        # ПЛЕЧО (убран фильтр по порту sshd), комментарии остались прежними —
+        # отпечаток совпал, и скрипт на живом сервере решил, что пересобирать
+        # нечего. Правила остались старыми, починка не доехала.
+        # Теперь любая правка формы правил = новый номер здесь, и пересборка
+        # происходит принудительно.
+        f"    chain {RULES_SCHEME_CHAIN} {{ }}",
         "}",
         "",
     ])
 
 
 def current_signature() -> str | None:
-    """Отпечаток действующего ruleset: набор uid и порт.
+    """Отпечаток действующего ruleset: набор учёток И форма правил.
 
     Нужен, чтобы НЕ пересобирать таблицу на каждом тике: пересборка — это
     короткое окно, когда счётчиков нет, а трафик идёт.
+
+    Форма правил учитывается через имя цепочки-метки: одного набора учёток
+    мало, потому что смена ПЛЕЧА учёта комментарии не меняет (см. build_ruleset).
     """
     try:
         res = run([NFT, "-j", "list", "table", "inet", NFT_TABLE])
@@ -393,11 +415,14 @@ def current_signature() -> str | None:
         rule = item.get("rule")
         if rule and (rule.get("comment") or "").startswith("cocssh:"):
             marks.append(rule["comment"])
+        chain = item.get("chain")
+        if chain and str(chain.get("name", "")).startswith("scheme_v"):
+            marks.append(f"scheme:{chain['name']}")
     return "|".join(sorted(marks))
 
 
 def wanted_signature(uids: dict[str, int]) -> str:
-    marks = []
+    marks = [f"scheme:{RULES_SCHEME_CHAIN}"]
     for username in uids:
         marks.append(f"cocssh:{username}:down")
         marks.append(f"cocssh:{username}:up")
