@@ -182,7 +182,12 @@
            из панели было нельзя (обнаружено 06.08.2026 при живой миграции).
            Требования режима проверяет сервер (_validate_behind_caddy);
            здесь только не даём собрать заведомо отвергаемую комбинацию. -->
-      <div class="form-group hidden" id="behind-caddy-group">
+      <!-- БЕЗ класса hidden намеренно. Блок лежит ВНУТРИ #section-xray, которая
+           сама скрывается для naive и ssh, — отдельно прятать его не нужно.
+           Со стартовым hidden флажок не показывался вообще: снять класс мог
+           только onEngineChange(), а кнопка «создать» зовёт openModal напрямую,
+           без resetForm() — обработчик не отрабатывал ни разу (06.08.2026). -->
+      <div class="form-group" id="behind-caddy-group">
         <label class="form-label" style="display:flex;align-items:center;gap:8px">
           <input type="checkbox" id="f-behind-caddy" onchange="onBehindCaddyToggle()">
           За настоящим сайтом
