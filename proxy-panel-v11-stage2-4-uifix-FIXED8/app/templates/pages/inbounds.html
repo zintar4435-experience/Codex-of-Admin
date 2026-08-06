@@ -176,6 +176,29 @@
           <input type="text" class="form-control" id="f-path" placeholder="/">
         </div>
       </div>
+      <!-- Режим «за настоящим сайтом» (transport_config.behind_caddy).
+           Бэкенд и генераторы конфига умели его с самого начала, а вот
+           переключателя в форме не было — режим существовал, но включить его
+           из панели было нельзя (обнаружено 06.08.2026 при живой миграции).
+           Требования режима проверяет сервер (_validate_behind_caddy);
+           здесь только не даём собрать заведомо отвергаемую комбинацию. -->
+      <div class="form-group hidden" id="behind-caddy-group">
+        <label class="form-label" style="display:flex;align-items:center;gap:8px">
+          <input type="checkbox" id="f-behind-caddy" onchange="onBehindCaddyToggle()">
+          За настоящим сайтом
+        </label>
+        <div class="form-text">
+          Xray слушает на loopback <b>без своего TLS</b>, наружу отдельного порта
+          нет вовсе. На 443 стоит Caddy: сертификат вашего домена, по обычным
+          адресам — сайт, и только один секретный путь заворачивается в туннель.
+          Снаружи неотличимо от обращения к работающему сайту.
+          <br>Требуется: протокол <b>VLESS</b>, транспорт <b>WebSocket</b> или
+          <b>HTTPUpgrade</b>, <b>домен</b> (отличный от панельного) и
+          <b>путь от 8 символов</b>, который не угадывается перебором.
+          <br><b>С Reality и TLS несовместим</b> — сертификатом владеет Caddy.
+        </div>
+      </div>
+
       <div class="form-group" id="tls-group">
         <label class="form-label" style="display:flex;align-items:center;gap:8px">
           <input type="checkbox" id="f-tls" onchange="onTlsToggle()"> TLS
@@ -787,6 +810,13 @@ function onEngineChange() {
   document.getElementById('section-xray').classList.toggle('hidden', engine !== 'xray');
   document.getElementById('section-naive').classList.toggle('hidden', engine !== 'naive');
   document.getElementById('section-ssh').classList.toggle('hidden', engine !== 'ssh');
+  // «За настоящим сайтом» — только у Xray: режим про то, как Caddy заворачивает
+  // путь в Xray на loopback. У naive и ssh смысла не имеет.
+  const bcGroup = document.getElementById('behind-caddy-group');
+  if (bcGroup) {
+    bcGroup.classList.toggle('hidden', engine !== 'xray');
+    if (engine !== 'xray') document.getElementById('f-behind-caddy').checked = false;
+  }
   if (engine === 'naive') {
     document.getElementById('f-protocol').value = 'naive';
   }
@@ -807,6 +837,7 @@ function resetForm() {
   document.getElementById('f-transport').value = 'tcp';
   document.getElementById('f-ssh-port').value = '22';
   document.getElementById('f-tls').checked = false;
+  document.getElementById('f-behind-caddy').checked = false;
   showRealitySection(false);
   onEngineChange();
   // Шаблоны видны только при создании нового inbound — при редактировании
@@ -991,7 +1022,31 @@ function onTlsToggle() {
   const tls = document.getElementById('f-tls');
   if (tls && tls.checked) {
     showRealitySection(false);
+    // TLS у инбаунда и «за настоящим сайтом» несовместимы: там сертификатом
+    // владеет Caddy, а Xray слушает на loopback без TLS вовсе. Сервер такую
+    // пару отвергает — не даём её собрать.
+    const bc = document.getElementById('f-behind-caddy');
+    if (bc && bc.checked) { bc.checked = false; onBehindCaddyToggle(); }
   }
+}
+
+// Включение режима «за настоящим сайтом»: гасим несовместимое и подставляем
+// пригодный транспорт. Полную проверку всё равно делает сервер
+// (_validate_behind_caddy) — здесь только чтобы форма не предлагала заведомо
+// отвергаемую комбинацию.
+function onBehindCaddyToggle() {
+  const bc = document.getElementById('f-behind-caddy');
+  const tr = document.getElementById('f-transport');
+  if (!bc || !bc.checked) return;
+  showRealitySection(false);
+  const tls = document.getElementById('f-tls');
+  if (tls) tls.checked = false;
+  // Caddy проксирует по пути только HTTP-апгрейд: tcp/kcp/grpc/splithttp
+  // здесь не работают. Если выбран непригодный — переводим на WebSocket.
+  if (tr && !['ws', 'httpupgrade'].includes(tr.value)) tr.value = 'ws';
+  // Путь по умолчанию '/' сервер отвергнет (нужно от 8 символов, не словарное).
+  const path = document.getElementById('f-path');
+  if (path && (!path.value || path.value === '/')) path.value = '';
 }
 
 // Запрашивает у бэкенда новую пару X25519-ключей и заполняет
@@ -1049,6 +1104,10 @@ async function editInbound(id) {
   document.getElementById('f-transport').value = ib.transport || 'tcp';
   document.getElementById('f-path').value = ib.transport_config?.path || '';
   document.getElementById('f-tls').checked = ib.tls_enabled;
+  // Режим «за настоящим сайтом» живёт в transport_config, отдельной колонки
+  // в БД у него нет — у старых инбаундов ключа просто не будет.
+  document.getElementById('f-behind-caddy').checked =
+    !!(ib.transport_config || {}).behind_caddy;
   document.getElementById('f-probe').value = '';  // probe-secret скрыт в списке — подтянем ниже
 
   // Reality-поля: показываем секцию, если у инбаунда есть reality_public_key
@@ -1089,6 +1148,11 @@ async function saveInbound() {
   // Если Reality-секция скрыта или ключей нет — не отправляем их вообще,
   // чтобы случайно не «включить» Reality на TLS-инбаунде.
   const tcfg = { path: document.getElementById('f-path').value || '/' };
+  // Флаг режима «за настоящим сайтом». Отправляем ТОЛЬКО когда включён: у
+  // остальных инбаундов ключа быть не должно вовсе — is_behind_caddy читает
+  // его как отсутствующий, и старые записи продолжают работать по-прежнему.
+  const behindCaddy = document.getElementById('f-behind-caddy');
+  if (behindCaddy && behindCaddy.checked) tcfg.behind_caddy = true;
   const realityVisible = !document.getElementById('reality-section').classList.contains('hidden');
   const privKey = document.getElementById('f-reality-privkey').value.trim();
   if (realityVisible && privKey) {
