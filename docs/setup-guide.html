@@ -1,0 +1,459 @@
+<title>Codex of Admin — установка</title>
+<style>
+  :root {
+    --bg: #F6F8F9; --surface: #FFFFFF; --surface-2: #EEF2F3; --ink: #141A1E;
+    --ink-soft: #3D474D; --mute: #6B767C; --line: #DCE3E5; --accent: #0E9F8C;
+    --accent-ink: #0B7C6E; --accent-wash: #E1F3F0; --warn: #B87611;
+    --warn-wash: #F8EEDC; --danger: #C0492F;
+    --shadow: 0 1px 2px rgba(20,26,30,.05), 0 8px 24px rgba(20,26,30,.06);
+    --radius: 14px; --maxw: 50rem;
+    --mono: ui-monospace, "Cascadia Code", "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace;
+    --sans: "Segoe UI Variable Display", "Segoe UI", -apple-system, BlinkMacSystemFont, "SF Pro Display", system-ui, Roboto, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0D1114; --surface: #141A1E; --surface-2: #1B2329; --ink: #E8EDEF;
+      --ink-soft: #C2CBD0; --mute: #8A959B; --line: #263036; --accent: #2AC6B0;
+      --accent-ink: #63D8C7; --accent-wash: #10312D; --warn: #E0A64A;
+      --warn-wash: #2C2413; --danger: #E67A62;
+      --shadow: 0 1px 2px rgba(0,0,0,.3), 0 10px 30px rgba(0,0,0,.35);
+    }
+  }
+  :root[data-theme="light"] {
+    --bg: #F6F8F9; --surface: #FFFFFF; --surface-2: #EEF2F3; --ink: #141A1E;
+    --ink-soft: #3D474D; --mute: #6B767C; --line: #DCE3E5; --accent: #0E9F8C;
+    --accent-ink: #0B7C6E; --accent-wash: #E1F3F0; --warn: #B87611;
+    --warn-wash: #F8EEDC; --danger: #C0492F;
+    --shadow: 0 1px 2px rgba(20,26,30,.05), 0 8px 24px rgba(20,26,30,.06);
+  }
+  :root[data-theme="dark"] {
+    --bg: #0D1114; --surface: #141A1E; --surface-2: #1B2329; --ink: #E8EDEF;
+    --ink-soft: #C2CBD0; --mute: #8A959B; --line: #263036; --accent: #2AC6B0;
+    --accent-ink: #63D8C7; --accent-wash: #10312D; --warn: #E0A64A;
+    --warn-wash: #2C2413; --danger: #E67A62;
+    --shadow: 0 1px 2px rgba(0,0,0,.3), 0 10px 30px rgba(0,0,0,.35);
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+    font-family: var(--sans); font-size: 17px; line-height: 1.62;
+    -webkit-font-smoothing: antialiased; }
+  .wrap { max-width: var(--maxw); margin: 0 auto; padding: 0 20px; }
+
+  .topbar { position: sticky; top: 0; z-index: 20;
+    background: color-mix(in srgb, var(--bg) 86%, transparent);
+    backdrop-filter: blur(12px); border-bottom: 1px solid var(--line); }
+  .topbar .wrap { display: flex; align-items: center; gap: 12px;
+    min-height: 58px; flex-wrap: wrap; }
+  .brand { display: flex; align-items: center; gap: 9px; font-weight: 640; letter-spacing: -.01em; }
+  .brand .glyph { width: 26px; height: 26px; border-radius: 8px; flex: none;
+    background: linear-gradient(150deg, var(--accent), var(--accent-ink));
+    display: grid; place-items: center; color: #fff;
+    box-shadow: 0 2px 8px color-mix(in srgb, var(--accent) 45%, transparent); }
+  .brand .glyph svg { width: 15px; height: 15px; }
+  .brand small { color: var(--mute); font-weight: 500; }
+  .spacer { flex: 1 1 auto; }
+
+  .seg { display: inline-flex; padding: 3px; gap: 2px;
+    background: var(--surface-2); border: 1px solid var(--line); border-radius: 10px; }
+  .seg button { appearance: none; border: 0; cursor: pointer; font: inherit;
+    font-size: 13px; font-weight: 560; color: var(--mute); background: transparent;
+    padding: 6px 12px; border-radius: 7px; line-height: 1;
+    display: inline-flex; align-items: center; gap: 6px;
+    transition: color .15s, background .15s, box-shadow .15s; }
+  .seg button svg { width: 14px; height: 14px; }
+  .seg button[aria-pressed="true"] { color: var(--ink); background: var(--surface); box-shadow: var(--shadow); }
+  .seg button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .seg.lang button { padding: 6px 10px; }
+
+  .hero { padding: 58px 0 30px; }
+  .eyebrow { font-size: 12px; letter-spacing: .14em; text-transform: uppercase;
+    color: var(--accent-ink); font-weight: 640; margin: 0 0 16px; }
+  h1 { font-size: clamp(2rem, 6vw, 3.1rem); line-height: 1.06;
+    letter-spacing: -.028em; font-weight: 720; margin: 0; text-wrap: balance; }
+  .lede { margin: 20px 0 0; font-size: 1.13rem; color: var(--ink-soft); max-width: 42ch; text-wrap: pretty; }
+
+  .keystone { margin: 34px 0 8px; position: relative; background: var(--surface);
+    border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow);
+    padding: 22px 24px 22px 26px; overflow: hidden; }
+  .keystone::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 4px;
+    background: linear-gradient(var(--accent), var(--accent-ink)); }
+  .keystone h2 { margin: 0 0 6px; font-size: 1.06rem; letter-spacing: -.01em; }
+  .keystone p { margin: 0; color: var(--ink-soft); font-size: .98rem; }
+  .keystone strong { color: var(--ink); }
+
+  section { padding: 26px 0; border-top: 1px solid var(--line); }
+  section:first-of-type { border-top: 0; }
+  .kicker { display: flex; align-items: baseline; gap: 12px; margin: 0 0 6px; }
+  .num { font-variant-numeric: tabular-nums; font-family: var(--mono);
+    font-size: .82rem; font-weight: 600; color: var(--accent-ink);
+    background: var(--accent-wash); border-radius: 6px; padding: 3px 8px; flex: none; line-height: 1; }
+  h2 { font-size: 1.4rem; letter-spacing: -.02em; margin: 0; font-weight: 680; text-wrap: balance; }
+  h2.plain { margin: 0 0 10px; }
+  p { margin: 0 0 14px; } p:last-child { margin-bottom: 0; }
+
+  ul.clean { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+  ul.clean li { position: relative; padding-left: 26px; color: var(--ink-soft); }
+  ul.clean li::before { content: ""; position: absolute; left: 4px; top: .62em;
+    width: 7px; height: 7px; border-radius: 50%; background: var(--accent); }
+  ul.clean li b { color: var(--ink); font-weight: 600; }
+
+  .path { font-family: var(--mono); font-size: .86em; background: var(--surface-2);
+    border: 1px solid var(--line); border-radius: 6px; padding: 1px 7px; white-space: nowrap; color: var(--ink); }
+  code { font-family: var(--mono); font-size: .86em; background: var(--surface-2);
+    border: 1px solid var(--line); border-radius: 5px; padding: 1px 5px; }
+
+  .note { display: grid; grid-template-columns: 22px 1fr; gap: 12px; background: var(--surface);
+    border: 1px solid var(--line); border-left: 3px solid var(--accent); border-radius: 10px;
+    padding: 15px 17px; margin: 16px 0 0; font-size: .95rem; }
+  .note.warn { border-left-color: var(--warn); background: color-mix(in srgb, var(--warn-wash) 55%, var(--surface)); }
+  .note.danger { border-left-color: var(--danger); }
+  .note .ic { color: var(--accent); margin-top: 2px; }
+  .note.warn .ic { color: var(--warn); } .note.danger .ic { color: var(--danger); }
+  .note svg { width: 18px; height: 18px; }
+  .note b { color: var(--ink); } .note p { margin: 0; color: var(--ink-soft); }
+
+  .plat { border: 1px solid var(--line); border-radius: 12px; padding: 16px 18px; margin-top: 14px; background: var(--surface); }
+  .plat > .tag { display: inline-flex; align-items: center; gap: 6px; font-size: 12px;
+    font-weight: 640; letter-spacing: .02em; color: var(--accent-ink); margin-bottom: 10px; }
+  .plat > .tag svg { width: 14px; height: 14px; }
+  body[data-plat="android"] .windows-only { display: none; }
+  body[data-plat="windows"] .android-only { display: none; }
+
+  details { border: 1px solid var(--line); border-radius: 11px; background: var(--surface); margin-top: 10px; overflow: hidden; }
+  details[open] { box-shadow: var(--shadow); }
+  summary { cursor: pointer; list-style: none; padding: 15px 18px; font-weight: 580;
+    color: var(--ink); display: flex; align-items: center; gap: 12px; font-size: 1rem; }
+  summary::-webkit-details-marker { display: none; }
+  summary .chev { margin-left: auto; color: var(--mute); transition: transform .2s; flex: none; }
+  summary .chev svg { width: 16px; height: 16px; display: block; }
+  details[open] summary .chev { transform: rotate(90deg); }
+  summary .q { color: var(--accent-ink); font-family: var(--mono); font-size: .8rem; flex: none; }
+  details .body { padding: 0 18px 16px 44px; color: var(--ink-soft); font-size: .95rem; }
+
+  footer { border-top: 1px solid var(--line); margin-top: 12px; padding: 28px 0 48px; color: var(--mute); font-size: .88rem; }
+  footer .wrap { display: flex; gap: 14px; flex-wrap: wrap; align-items: center; justify-content: space-between; }
+  a { color: var(--accent-ink); text-underline-offset: 2px; }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+  @media (max-width: 560px) { body { font-size: 16px; } .hero { padding: 40px 0 22px; } details .body { padding-left: 18px; } }
+</style>
+<style>
+  pre { font-family: var(--mono); font-size: .84rem; line-height: 1.55;
+    background: var(--surface-2); border: 1px solid var(--line);
+    border-radius: 10px; padding: 14px 16px; margin: 14px 0 0;
+    overflow-x: auto; color: var(--ink); }
+  pre code { background: none; border: 0; padding: 0; font-size: inherit; }
+  .cmd { position: relative; }
+  .cmd .who { position: absolute; right: 12px; top: 10px; font-size: 11px;
+    letter-spacing: .06em; text-transform: uppercase; color: var(--mute);
+    font-family: var(--sans); font-weight: 620; }
+  table { width: 100%; border-collapse: collapse; margin: 16px 0 0; font-size: .93rem; }
+  th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--line);
+    vertical-align: top; color: var(--ink-soft); }
+  th { color: var(--ink); font-weight: 620; font-size: .86rem;
+    letter-spacing: .02em; text-transform: uppercase; }
+  td b { color: var(--ink); font-weight: 600; }
+  tr:last-child td { border-bottom: 0; }
+  ol.steps { counter-reset: s; list-style: none; margin: 14px 0 0; padding: 0; display: grid; gap: 14px; }
+  ol.steps > li { counter-increment: s; position: relative; padding-left: 38px; color: var(--ink-soft); }
+  ol.steps > li::before { content: counter(s); position: absolute; left: 0; top: -1px;
+    width: 25px; height: 25px; border-radius: 8px; background: var(--accent-wash);
+    color: var(--accent-ink); font-family: var(--mono); font-size: .8rem; font-weight: 640;
+    display: grid; place-items: center; }
+  ol.steps > li b { color: var(--ink); font-weight: 620; }
+  .toc { display: grid; gap: 6px; margin: 18px 0 0; }
+  .toc a { display: flex; gap: 12px; align-items: baseline; text-decoration: none;
+    padding: 8px 12px; border-radius: 9px; border: 1px solid transparent; color: var(--ink-soft); }
+  .toc a:hover { background: var(--surface); border-color: var(--line); }
+  .toc a span.n { font-family: var(--mono); font-size: .78rem; color: var(--accent-ink); flex: none; }
+  .toc a b { color: var(--ink); font-weight: 580; }
+</style>
+
+<body>
+<div class="topbar"><div class="wrap">
+  <div class="brand">
+    <span class="glyph"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 4 6v6c0 5 3.4 8.6 8 10 4.6-1.4 8-5 8-10V6z"/></svg></span>
+    Codex of Admin <small>&nbsp;установка</small>
+  </div>
+  <div class="spacer"></div>
+  <div class="seg">
+    <button id="t-light" aria-pressed="false" onclick="setTheme('light')">Светлая</button>
+    <button id="t-dark" aria-pressed="false" onclick="setTheme('dark')">Тёмная</button>
+  </div>
+</div></div>
+
+<div class="wrap">
+
+<div class="hero">
+  <p class="eyebrow">Своя панель на своём сервере</p>
+  <h1>Установка Codex&nbsp;of&nbsp;Admin</h1>
+  <p class="lede">От чистого сервера до первого работающего подключения. Без предварительных знаний — всё по шагам.</p>
+</div>
+
+<div class="keystone">
+  <h2>Что получится в конце</h2>
+  <p>Работающий сервер с панелью и подключением, которое не бросается в глаза. Схем несколько — от самой быстрой до самой незаметной, и они <strong>совмещаются на одном сервере</strong>. Какую взять, разбираем в шаге 06; если выбирать не хочется, там же есть готовый ответ.</p>
+</div>
+
+<div class="toc">
+  <a href="#p0"><span class="n">00</span><b>Что нужно заранее</b></a>
+  <a href="#p1"><span class="n">01</span><b>Домены и DNS</b></a>
+  <a href="#p2"><span class="n">02</span><b>Установка</b></a>
+  <a href="#p3"><span class="n">03</span><b>Первый вход и HTTPS</b></a>
+  <a href="#p4"><span class="n">04</span><b>Безопасность — сразу, не потом</b></a>
+  <a href="#p5"><span class="n">05</span><b>Сайт-прикрытие</b></a>
+  <a href="#p6"><span class="n">06</span><b>Какую схему выбрать</b></a>
+  <a href="#p6a"><span class="n">06·A</span><b>VLESS + Reality</b></a>
+  <a href="#p6b"><span class="n">06·B</span><b>За настоящим сайтом</b></a>
+  <a href="#p6c"><span class="n">06·C</span><b>Обе схемы на одном сервере</b></a>
+  <a href="#p6d"><span class="n">06·D</span><b>NaiveProxy и SSH</b></a>
+  <a href="#p7"><span class="n">07</span><b>Пользователи и ссылки</b></a>
+  <a href="#p8"><span class="n">08</span><b>Проверка</b></a>
+  <a href="#p9"><span class="n">09</span><b>Обновление</b></a>
+  <a href="#faq"><span class="n">10</span><b>Если что-то пошло не так</b></a>
+</div>
+
+<section id="p0">
+  <div class="kicker"><span class="num">00</span><h2>Что нужно заранее</h2></div>
+  <ul class="clean">
+    <li><b>Сервер</b> — Ubuntu 22.04 или 24.04, архитектура x86_64, доступ по SSH под root. Чистый: панель сама поставит всё, что ей нужно, и займёт порты 80 и 443.</li>
+    <li><b>Домен</b> — свой, любой. Бесплатные динамические домены не годятся: их блокируют целыми зонами, мы это проходили.</li>
+    <li><b>Имя для панели</b> — обязательно. Например, поддомен <span class="path">panel.example.com</span>.</li>
+    <li><b>Имя для подключения</b> — нужно не всем. Схеме Reality домен не требуется вовсе; схемам «за настоящим сайтом» и NaiveProxy — обязателен, и у каждой своё имя. Все они — просто поддомены одного домена, указывающие на тот же сервер.</li>
+  </ul>
+  <div class="note warn"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 9v4m0 4h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg></span>
+  <p><b>Панель и подключение обязаны быть на разных именах.</b> Панель это проверяет и не даст сохранить иначе. Причина простая: если они на одном хосте, то любой, кто нашёл ваш VPN, нашёл и вход в админку.</p></div>
+</section>
+
+<section id="p1">
+  <div class="kicker"><span class="num">01</span><h2>Домены и DNS</h2></div>
+  <p>В панели управления доменом заведите A-записи на IP сервера. Например, для домена <span class="path">example.com</span>:</p>
+  <table>
+    <tr><th>Имя</th><th>Тип</th><th>Значение</th><th>Зачем</th><th>Нужно?</th></tr>
+    <tr><td><span class="path">panel</span></td><td>A</td><td>IP сервера</td><td>вход в панель</td><td><b>всегда</b></td></tr>
+    <tr><td><span class="path">www</span> или <span class="path">@</span></td><td>A</td><td>IP сервера</td><td>сайт и подключение за ним</td><td>для схемы B</td></tr>
+    <tr><td><span class="path">cdn</span> (любое)</td><td>A</td><td>IP сервера</td><td>NaiveProxy</td><td>если берёте его</td></tr>
+  </table>
+  <p>Все записи ведут на один и тот же сервер — разные имена нужны, чтобы он понимал, кому какое соединение отдавать. Лишние можно завести потом, когда решите, какие схемы поднимаете.</p>
+  <div class="note"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 8v5m0 3h.01"/></svg></span>
+  <p>Записи расходятся по интернету не мгновенно — обычно минуты, иногда до часа. Пока домен не отвечает вашим IP, сертификат не выпустится. Проверить: <code>ping panel.example.com</code> должен показать IP сервера.</p></div>
+</section>
+
+<section id="p2">
+  <div class="kicker"><span class="num">02</span><h2>Установка</h2></div>
+  <p>Зайдите на сервер по SSH под root и выполните одну команду:</p>
+  <pre class="cmd"><span class="who">на сервере</span><code>curl -fsSL https://raw.githubusercontent.com/zintar4435-experience/Codex-of-Admin/main/bootstrap.sh | sudo bash</code></pre>
+  <p>Она поставит всё сама: Xray, Caddy с поддержкой NaiveProxy, саму панель, службы и firewall. Займёт несколько минут.</p>
+  <p>Эту же команду вы будете запускать для обновления — она сама поймёт, что панель уже стоит, и обновит только код. База данных и настройки при этом не трогаются.</p>
+</section>
+
+<section id="p3">
+  <div class="kicker"><span class="num">03</span><h2>Первый вход и HTTPS</h2></div>
+  <ol class="steps">
+    <li>Откройте в браузере <span class="path">http://IP-сервера:5000</span> и задайте пароль администратора. <b>Не короче 10 символов</b> — этот адрес виден всему интернету.</li>
+    <li>В настройках панели укажите домен панели — <span class="path">panel.example.com</span>.</li>
+    <li>Сохраните. Панель получит сертификат и переедет на <span class="path">https://panel.example.com</span> сама.</li>
+    <li>Убедитесь, что она открывается по новому адресу, и только потом переходите дальше.</li>
+  </ol>
+</section>
+
+<section id="p4">
+  <div class="kicker"><span class="num">04</span><h2>Безопасность — сразу, не потом</h2></div>
+  <p>Три вещи, которые стоит сделать в тот же день, а не «когда-нибудь».</p>
+  <ol class="steps">
+    <li><b>Включите двухфакторную аутентификацию</b> в настройках панели. Это главная защита: пароль подбирают, второй фактор — нет.</li>
+    <li><b>Закройте порт 5000.</b> После переезда на HTTPS он больше не нужен, а пока открыт — это вход в админку в обход домена:
+      <pre class="cmd"><span class="who">на сервере</span><code>sudo ufw delete allow 5000/tcp</code></pre>
+    </li>
+    <li><b>Если у хостера есть свой firewall</b> — оставьте открытыми только 22, 80 и 443.</li>
+  </ol>
+</section>
+
+<section id="p5">
+  <div class="kicker"><span class="num">05</span><h2>Сайт-прикрытие</h2></div>
+  <p>Это то, ради чего всё затевается. По вашему домену должен открываться настоящий сайт — иначе схема не работает.</p>
+  <p>Положите файлы сайта сюда:</p>
+  <pre class="cmd"><span class="who">на сервере</span><code>/var/www/decoy</code></pre>
+  <p>Подойдёт что угодно осмысленное: визитка, блог, портфолио, страница-заглушка небольшой конторы. Главное — чтобы человек, открывший домен, увидел сайт и не удивился.</p>
+  <div class="note warn"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 9v4m0 4h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg></span>
+  <p><b>Пустая папка — половина решения.</b> Домен с сертификатом, на котором нет сайта, выглядит подозрительнее домена без сертификата: «сайт есть, а содержимого нет» — это ровно та аномалия, которую ищут автоматические проверки. Пустой каталог лучше, чем ничего, но настоящий сайт лучше пустого каталога.</p></div>
+</section>
+
+<section id="p6">
+  <div class="kicker"><span class="num">06</span><h2>Какую схему выбрать</h2></div>
+  <p>Панель умеет несколько способов, и они не взаимоисключающие — на одном сервере можно держать сразу два. Сначала о том, чем они отличаются.</p>
+  <table>
+    <tr><th>Схема</th><th>Нужен домен</th><th>Скорость</th><th>Незаметность</th><th>Когда брать</th></tr>
+    <tr><td><b>VLESS + Reality</b></td><td>нет</td><td>максимальная</td><td>высокая</td><td>по умолчанию</td></tr>
+    <tr><td><b>За настоящим сайтом</b></td><td>да</td><td>чуть ниже</td><td>максимальная</td><td>где Reality режут</td></tr>
+    <tr><td><b>NaiveProxy</b></td><td>да, свой</td><td>средняя</td><td>высокая</td><td>как запасной путь</td></tr>
+    <tr><td><b>SSH</b></td><td>нет</td><td>низкая</td><td>средняя</td><td>когда не работает ничего</td></tr>
+  </table>
+  <div class="note"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 8v5m0 3h.01"/></svg></span>
+  <p><b>Если не хотите выбирать</b> — переходите сразу к варианту <b>C</b>: Reality и сайт вместе на одном порту. Это лучшее из обоих, и настраивается не сложнее, чем каждый по отдельности.</p></div>
+  <div class="note warn"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 9v4m0 4h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg></span>
+  <p>В панели видны ещё Trojan и Shadowsocks. <b>Наше приложение их не понимает</b> — оно умеет VLESS, NaiveProxy и SSH. Заводите их, только если ваши люди пользуются сторонними клиентами.</p></div>
+</section>
+
+<section id="p6a">
+  <div class="kicker"><span class="num">06·A</span><h2>Вариант A — VLESS + Reality</h2></div>
+  <p>Самый быстрый и самый простой: домен для туннеля не нужен, сертификат не нужен, всё поднимается в одно действие.</p>
+  <p>Работает так: сервер изображает чужое TLS-рукопожатие — например, представляется <span class="path">www.microsoft.com</span>. Кто не знает ключ, тот и правда попадёт на настоящий сайт, под который вы маскируетесь.</p>
+  <p>В панели: <b>Инбаунды → создать → шаблон «VLESS + Reality»</b>. Шаблон заполнит всё сам.</p>
+  <table>
+    <tr><th>Поле</th><th>Значение</th><th>Почему так</th></tr>
+    <tr><td>Движок</td><td><b>Xray</b></td><td>Reality живёт только здесь</td></tr>
+    <tr><td>Протокол</td><td><b>VLESS</b></td><td>с другими Reality не работает вовсе</td></tr>
+    <tr><td>Транспорт</td><td><b>TCP</b></td><td>обязательно, панель проверит</td></tr>
+    <tr><td>Порт</td><td><b>443</b></td><td>обычный порт HTTPS, не привлекает внимания</td></tr>
+    <tr><td>Ключи Reality</td><td>заполнятся сами</td><td>панель их генерирует, руками ничего не вводить</td></tr>
+    <tr><td>Flow</td><td><b>xtls-rprx-vision</b></td><td>это и даёт скорость, см. ниже</td></tr>
+  </table>
+  <div class="note warn"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 9v4m0 4h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg></span>
+  <p><b>Не берите gRPC или WebSocket «для надёжности».</b> Reality требует именно TCP — на другом транспорте панель откажет. И даже там, где такое сочетание собирается, оно работает медленно: поверх шифрования появляется второй слой со своим управлением потоком, и на дальнем плече это даёт долгие подключения и низкую скорость. Мы разбирали ровно такой случай у знакомого сервера — жалобы были именно на это.</p></div>
+  <div class="note"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 8v5m0 3h.01"/></svg></span>
+  <p><b>Слабое место Reality — расхождение.</b> Соединение идёт на ваш IP, а представляется чужим именем. Часть систем фильтрации это сверяет. Вариант C ниже убирает расхождение полностью.</p></div>
+</section>
+
+<section id="p6b">
+  <div class="kicker"><span class="num">06·B</span><h2>Вариант B — за настоящим сайтом</h2></div>
+  <p>Здесь никакой маскировки под чужой сайт нет: у вас есть свой домен, на нём стоит свой сайт, и VPN живёт внутри него по секретному пути. Снаружи это обычный сайт на HTTPS — потому что это и есть обычный сайт на HTTPS.</p>
+  <p>В панели: <b>Инбаунды → создать</b>.</p>
+  <table>
+    <tr><th>Поле</th><th>Значение</th><th>Почему так</th></tr>
+    <tr><td>Движок</td><td><b>Xray</b></td><td>галочка режима есть только у него</td></tr>
+    <tr><td>Протокол</td><td><b>VLESS</b></td><td>единственный, который умеет клиент</td></tr>
+    <tr><td>Транспорт</td><td><b>ws</b> или <b>httpupgrade</b></td><td>Caddy проксирует по пути только HTTP-апгрейд</td></tr>
+    <tr><td>Домен</td><td><span class="path">www.example.com</span></td><td>не панельный — панель это проверит</td></tr>
+    <tr><td>Путь</td><td><span class="path">/a7f3c1b9e2</span></td><td>от 8 символов, неочевидный</td></tr>
+    <tr><td>За настоящим сайтом</td><td><b>включить</b></td><td>это и есть режим</td></tr>
+  </table>
+  <div class="note danger"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 9v4m0 4h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg></span>
+  <p><b>Путь — это ключ, а не украшение.</b> <span class="path">/ws</span>, <span class="path">/vpn</span>, <span class="path">/api</span> находятся перебором за минуты, и тогда маскировка перестаёт работать: снаружи видно, что за сайтом что-то есть. Панель отвергнет всё короче 8 символов. Возьмите случайный набор букв и цифр — и <b>запишите его</b>, восстановить из панели потом сложнее, чем кажется.</p></div>
+  <div class="note"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 8v5m0 3h.01"/></svg></span>
+  <p><b>Reality в этом инбаунде включить нельзя</b>, и панель не даст. Это два разных способа обращаться с шифрованием, а слой всего один: здесь его берёт на себя Caddy сертификатом вашего домена, а Reality означает, что сертификата нет вовсе и рукопожатие изображает Xray. Запрет касается <b>только одного инбаунда</b> — на сервере обе схемы прекрасно уживаются, см. вариант C.</p></div>
+</section>
+
+<section id="p6c">
+  <div class="kicker"><span class="num">06·C</span><h2>Вариант C — обе схемы на одном сервере</h2></div>
+  <p>Рекомендуемый. Панель умеет это специально, и настраивается он так: <b>просто заведите оба инбаунда</b> — из варианта A и из варианта B. Больше ничего делать не нужно.</p>
+  <p>Что произойдёт само:</p>
+  <ul class="clean">
+    <li>Caddy съедет на <span class="path">127.0.0.1:8443</span> — внутрь сервера, наружу он больше не смотрит.</li>
+    <li>Reality займёт публичный <b>443</b>.</li>
+    <li>Всё, что пришло на 443 <b>без правильного ключа</b>, Reality завернёт на локальный Caddy — и человек увидит ваш сайт.</li>
+  </ul>
+  <div class="note"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 8v5m0 3h.01"/></svg></span>
+  <p><b>Почему это лучше каждого по отдельности.</b> У Reality пропадает его слабое место: он больше не притворяется чужим сайтом — прикрытием служит ваш собственный, на вашем же домене и с вашим сертификатом. Расхождения «идём на один IP, называемся другим именем» больше нет. А люди, у которых Reality не проходит, берут ссылку от инбаунда за сайтом. Один сервер, один порт, два пути.</p></div>
+  <div class="note warn"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 9v4m0 4h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg></span>
+  <p>После этого <b>порт 8443 занят Caddy</b> и другим инбаундам недоступен — панель откажет с объяснением. Если 8443 зачем-то понадобился, сначала уберите Reality с 443.</p></div>
+</section>
+
+<section id="p6d">
+  <div class="kicker"><span class="num">06·D</span><h2>Вариант D — NaiveProxy и SSH</h2></div>
+  <p>Два запасных пути. Их держат не вместо основных, а <b>рядом</b> — на случай, когда основной перестал работать у конкретного человека.</p>
+
+  <h2 class="plain" style="font-size:1.08rem;margin-top:22px">NaiveProxy</h2>
+  <p>Выглядит как обычный браузерный трафик к сайту, потому что технически им и является. В панели: <b>Инбаунды → создать → шаблон «NaiveProxy»</b>.</p>
+  <ul class="clean">
+    <li><b>Нужен отдельный домен</b> — третий, не панельный и не тот, что у инбаунда за сайтом. Подойдёт ещё один поддомен с A-записью на тот же IP.</li>
+    <li>Порт <b>443</b>, TLS обязателен — сертификат панель получит сама.</li>
+    <li>Домен обязателен по устройству: Caddy разбирает входящие соединения по имени, и без своего имени NaiveProxy некуда направить.</li>
+  </ul>
+
+  <h2 class="plain" style="font-size:1.08rem;margin-top:22px">SSH</h2>
+  <p>Самый последний рубеж. Медленный, но проходит там, где не проходит ничего — SSH блокируют редко, он нужен всем администраторам.</p>
+  <p>В панели: <b>Инбаунды → создать → движок SSH</b>. Указывается порт вашего sshd (обычно <b>22</b>). Домен и сертификат не нужны.</p>
+  <div class="note warn"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 9v4m0 4h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg></span>
+  <p>SSH-узел даёт доступ к вашему серверу по-настоящему, поэтому раздавайте его выборочно и не тем же людям, что обычные ссылки. Скорость заметно ниже остальных схем — это нормально и не чинится настройками.</p></div>
+</section>
+
+<section id="p7">
+  <div class="kicker"><span class="num">07</span><h2>Пользователи и ссылки</h2></div>
+  <ol class="steps">
+    <li>В панели: <b>Клиенты → добавить</b>, выберите созданный инбаунд.</li>
+    <li>У каждого клиента есть ссылка и QR-код — их и отдаёте человеку.</li>
+    <li>В приложении на телефоне или компьютере ссылка вставляется одним действием, настраивать ничего не нужно.</li>
+  </ol>
+  <div class="note warn"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 9v4m0 4h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg></span>
+  <p><b>Ссылка на подписку — сама по себе ключ.</b> Адрес вида <span class="path">https://домен/sub/…</span> выдаёт все узлы пользователя без пароля. Отдавайте его лично, не выкладывайте в общие чаты и не присылайте нам в поддержку — при разборе проблем достаточно строк <span class="path">vless://…</span> с заменённым идентификатором.</p></div>
+</section>
+
+<section id="p8">
+  <div class="kicker"><span class="num">08</span><h2>Проверка</h2></div>
+  <p>Три проверки, которые стоит пройти прежде, чем раздавать ссылки людям.</p>
+  <ol class="steps">
+    <li><b>Службы живы.</b> Все четыре должны быть <code>active (running)</code>:
+      <pre class="cmd"><span class="who">на сервере</span><code>systemctl status proxy-panel proxy-panel-scheduler xray caddy</code></pre>
+    </li>
+    <li><b>Панель отвечает.</b> Должно вернуться <code>{"status":"ok"}</code>:
+      <pre class="cmd"><span class="who">на сервере</span><code>curl -sf http://127.0.0.1:5000/api/system/health</code></pre>
+    </li>
+    <li><b>Сайт открывается.</b> Зайдите на <span class="path">https://www.example.com</span> с телефона по мобильному интернету — должен открыться ваш сайт-прикрытие, без предупреждений о сертификате.</li>
+  </ol>
+  <p>И только потом — подключитесь сами, своей же ссылкой, прежде чем отдавать её другим.</p>
+</section>
+
+<section id="p9">
+  <div class="kicker"><span class="num">09</span><h2>Обновление</h2></div>
+  <p>Та же команда, что и при установке. Она сама определит, что панель уже стоит:</p>
+  <pre class="cmd"><span class="who">на сервере</span><code>curl -fsSL https://raw.githubusercontent.com/zintar4435-experience/Codex-of-Admin/main/bootstrap.sh | sudo bash</code></pre>
+  <p>Обновляется только код панели. Пользователи, инбаунды и настройки остаются на месте. Запускать можно сколько угодно раз.</p>
+</section>
+
+<section id="faq">
+  <div class="kicker"><span class="num">10</span><h2>Если что-то пошло не так</h2></div>
+  <p>Собрано по граблям, на которые наступали мы. Каждая стоила нескольких часов.</p>
+
+  <details><summary><span class="q">01</span>Панель не открывается по домену<span class="chev"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 18 6-6-6-6"/></svg></span></summary>
+  <div class="body"><p>Почти всегда — DNS ещё не разошёлся или A-запись указывает не туда. Проверьте <code>ping panel.example.com</code>: должен ответить IP вашего сервера. Пока не отвечает — сертификат не выпустится, и это нормально.</p>
+  <p>Если IP верный, а страницы нет — смотрите Caddy: <code>journalctl -u caddy -n 100 --no-pager</code>.</p></div></details>
+
+  <details><summary><span class="q">02</span>«Порт 8443 занят»<span class="chev"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 18 6-6-6-6"/></svg></span></summary>
+  <div class="body"><p>Так и задумано. Если у вас есть инбаунд Reality на 443, Caddy уходит на <span class="path">127.0.0.1:8443</span> и делит порт 443 с ним. Этот порт после этого зарезервирован — занять его другим инбаундом нельзя.</p>
+  <p>Нужен 8443 под что-то другое — сначала уберите Reality с 443.</p></div></details>
+
+  <details><summary><span class="q">03</span>Домен перестал открываться у всех сразу<span class="chev"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 18 6-6-6-6"/></svg></span></summary>
+  <div class="body"><p>Если сервер жив и службы работают — скорее всего заблокировали сам домен, а не сервер. Так бывает с бесплатными и динамическими зонами: их блокируют целиком, вместе со всеми чужими именами внутри.</p>
+  <p>Проверяется просто: тот же сервер по IP отвечает, а по имени — нет. Лечится только переездом на свой домен. Поэтому в начале и сказано: домен нужен свой.</p></div></details>
+
+  <details><summary><span class="q">04</span>После правки инбаунда пропали пользователи<span class="chev"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 18 6-6-6-6"/></svg></span></summary>
+  <div class="body"><p>Такое у нас случалось. <b>После любой правки существующего инбаунда проверьте список клиентов.</b> Если собираетесь менять что-то серьёзное — протокол, транспорт, порт — сначала сделайте резервную копию в настройках панели.</p>
+  <p>И общее правило: новый инбаунд создать безопаснее, чем переделать работающий. Старый можно выключить, когда все перейдут на новый.</p></div></details>
+
+  <details><summary><span class="q">05</span>Подключение работает, но медленно<span class="chev"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 18 6-6-6-6"/></svg></span></summary>
+  <div class="body"><p>Сначала исключите сервер: попробуйте ту же ссылку с другого интернета — с мобильного, у знакомого. Медленно везде — дело в сервере или его канале, и настройками это не лечится.</p>
+  <p>Медленно у одного оператора и быстро у другого — это придерживание трафика провайдером. Признак: утром летает, вечером еле дышит. Тут помогает именно маскировка под сайт, ради которой всё и делалось.</p></div></details>
+
+  <details><summary><span class="q">06</span>Что смотреть, когда непонятно<span class="chev"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 18 6-6-6-6"/></svg></span></summary>
+  <div class="body"><p>Три журнала, по одному на каждую часть:</p>
+  <pre><code>journalctl -u proxy-panel -n 100 --no-pager
+journalctl -u xray        -n 100 --no-pager
+journalctl -u caddy       -n 100 --no-pager</code></pre>
+  <p>Панель не открывается — первый. Не подключается клиент — второй. Проблемы с доменом или сертификатом — третий.</p></div></details>
+</section>
+
+</div>
+
+<footer><div class="wrap">
+  <span>Codex of Admin</span>
+  <span>Панель, клиент и эта инструкция — один продукт.</span>
+</div></footer>
+
+<script>
+  function setTheme(t) {
+    document.documentElement.setAttribute('data-theme', t);
+    try { localStorage.setItem('coa-theme', t); } catch (e) {}
+    document.getElementById('t-light').setAttribute('aria-pressed', String(t === 'light'));
+    document.getElementById('t-dark').setAttribute('aria-pressed', String(t === 'dark'));
+  }
+  (function () {
+    var saved = null;
+    try { saved = localStorage.getItem('coa-theme'); } catch (e) {}
+    if (saved) { setTheme(saved); return; }
+    var dark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+    document.getElementById('t-light').setAttribute('aria-pressed', String(!dark));
+    document.getElementById('t-dark').setAttribute('aria-pressed', String(dark));
+  })();
+</script>
+</body>
