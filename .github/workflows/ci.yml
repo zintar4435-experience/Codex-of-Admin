@@ -80,6 +80,31 @@ jobs:
           print("Smoke OK")
           PY
 
+      - name: Неинтерактивное создание администратора
+        # Регресс-замок на полевую аварию: раньше создание админа шло через
+        # input()+getpass() и ломалось при установке `curl | sudo bash`
+        # (нет терминала). Проверяем, что путь через окружение работает и
+        # пароль реально записан (полевой случай — password_hash был пуст).
+        env:
+          SECRET_KEY: ci-admin
+          PP_ADMIN_USERNAME: ciadmin
+          PP_ADMIN_PASSWORD: ciPassw0rd1234
+        run: |
+          python run.py --create-admin
+          python - <<'PY'
+          import os
+          os.environ["SECRET_KEY"] = "ci-admin"
+          from app import create_app
+          from app.models import User
+          app = create_app()
+          with app.app_context():
+              u = User.query.filter_by(username="ciadmin").first()
+              assert u is not None, "админ не создан"
+              assert u.password_hash, "password_hash пуст"
+              assert u.check_password("ciPassw0rd1234"), "пароль не совпал"
+          print("Non-interactive admin OK")
+          PY
+
       - name: Bash syntax (install/update/bootstrap)
         run: |
           bash -n install.sh

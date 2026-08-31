@@ -843,11 +843,22 @@ run chmod +x /etc/cron.daily/proxy-panel-backup
 # ── 9. Создать первого админа ─────────────────────────────────
 if ! $DRY_RUN; then
     info "Инициализация БД и создание администратора..."
+    # Пароль генерируем ЗДЕСЬ и передаём в run.py через окружение —
+    # неинтерактивно. Так установка через `curl | sudo bash` больше не зависит
+    # от терминала: пользователь гарантированно получает готовые данные входа
+    # (см. финальный блок ниже). Алфавит без спецсимволов — безопасно для env.
+    ADMIN_USER="admin"
+    ADMIN_PASS="$("${PANEL_DIR}/venv/bin/python" - <<'PYGEN'
+import secrets, string
+print("".join(secrets.choice(string.ascii_letters + string.digits) for _ in range(16)))
+PYGEN
+)"
     if ! su -s /bin/bash "${PANEL_USER}" -c \
-        "export HOME=/home/proxypanel; cd '${PANEL_DIR}' && '${PANEL_DIR}/venv/bin/python' run.py --create-admin"; then
+        "export HOME=/home/proxypanel PP_ADMIN_USERNAME='${ADMIN_USER}' PP_ADMIN_PASSWORD='${ADMIN_PASS}'; cd '${PANEL_DIR}' && '${PANEL_DIR}/venv/bin/python' run.py --create-admin"; then
         warn "su не сработал — запуск от root, права будут исправлены chown'ом"
         cd "${PANEL_DIR}"
-        "${PANEL_DIR}/venv/bin/python" run.py --create-admin
+        PP_ADMIN_USERNAME="${ADMIN_USER}" PP_ADMIN_PASSWORD="${ADMIN_PASS}" \
+            "${PANEL_DIR}/venv/bin/python" run.py --create-admin
     fi
 
     chown -R "${PANEL_USER}:${PANEL_USER}" "${PANEL_DIR}/instance"
@@ -885,8 +896,16 @@ echo -e "${GREEN}╔════════════════════
 echo -e "${GREEN}║              ProxyPanel установлен!                  ║${NC}"
 echo -e "${GREEN}╠══════════════════════════════════════════════════════╣${NC}"
 echo -e "${GREEN}║${NC}  Панель доступна на:  http://${SERVER_IP}:5000      ${GREEN}║${NC}"
-echo -e "${GREEN}║${NC}  UFW уже открыл порт 5000 для первоначальной       ${GREEN}║${NC}"
-echo -e "${GREEN}║${NC}  настройки. После привязки домена закройте его:    ${GREEN}║${NC}"
+echo -e "${GREEN}╠══════════════════════════════════════════════════════╣${NC}"
+echo -e "${GREEN}║${NC}  ВОЙТИ В ПАНЕЛЬ (сохраните — пароль показан 1 раз): ${GREEN}║${NC}"
+echo -e "${GREEN}║${NC}    Логин:  ${ADMIN_USER:-admin}"
+echo -e "${GREEN}║${NC}    Пароль: ${ADMIN_PASS:-<см. выше>}"
+echo -e "${GREEN}║${NC}  Сменить пароль позже:                             ${GREEN}║${NC}"
+echo -e "${GREEN}║${NC}    ${PANEL_DIR}/venv/bin/python run.py --create-admin \\"
+echo -e "${GREEN}║${NC}      --username admin --password 'НОВЫЙ_ПАРОЛЬ'"
+echo -e "${GREEN}╠══════════════════════════════════════════════════════╣${NC}"
+echo -e "${GREEN}║${NC}  Порт 5000 — это аварийный вход в обход домена.    ${GREEN}║${NC}"
+echo -e "${GREEN}║${NC}  Закрывайте его ТОЛЬКО когда домен уже работает:   ${GREEN}║${NC}"
 echo -e "${GREEN}║${NC}    ufw delete allow 5000/tcp                       ${GREEN}║${NC}"
 echo -e "${GREEN}╠══════════════════════════════════════════════════════╣${NC}"
 echo -e "${GREEN}║${NC}  Следующие шаги:                                   ${GREEN}║${NC}"

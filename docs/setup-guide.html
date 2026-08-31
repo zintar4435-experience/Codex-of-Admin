@@ -282,11 +282,16 @@
 <section id="p3">
   <div class="kicker"><span class="num">03</span><h2>Первый вход и HTTPS</h2></div>
   <ol class="steps">
-    <li>Откройте в браузере <span class="path">http://IP-сервера:5000</span> и задайте пароль администратора. <b>Не короче 10 символов</b> — этот адрес виден всему интернету.</li>
+    <li>Логин и пароль администратора установщик <b>показал в конце установки</b> — в рамке «ВОЙТИ В ПАНЕЛЬ». Сохраните их: пароль показан один раз. Если потеряли — задайте новый на сервере:
+      <pre class="cmd"><span class="who">на сервере</span><code>/opt/proxy-panel/venv/bin/python /opt/proxy-panel/run.py --create-admin --username admin --password 'НОВЫЙ_ПАРОЛЬ'</code></pre>
+    </li>
+    <li>Откройте <span class="path">http://IP-сервера:5000</span> и войдите этими данными.</li>
     <li>В настройках панели укажите домен панели — <span class="path">panel.example.com</span>.</li>
     <li>Сохраните. Панель получит сертификат и переедет на <span class="path">https://panel.example.com</span> сама.</li>
     <li>Убедитесь, что она открывается по новому адресу, и только потом переходите дальше.</li>
   </ol>
+  <div class="note"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 8v5m0 3h.01"/></svg></span>
+  <p>Порт <span class="path">5000</span> — это <b>аварийный вход в обход домена</b>. Закрывайте его (раздел 04) только после того, как панель открылась по <span class="path">https://panel.example.com</span> — если что-то с доменом пойдёт не так, вернуться можно будет только через него.</p></div>
 </section>
 
 <section id="p4">
