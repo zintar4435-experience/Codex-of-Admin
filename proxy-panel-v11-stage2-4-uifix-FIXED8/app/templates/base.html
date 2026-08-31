@@ -1291,7 +1291,7 @@
       copyBtn.className = 'toast-btn';
       copyBtn.title = 'Скопировать';
       copyBtn.innerHTML = '<i class="bi bi-clipboard"></i>';
-      copyBtn.addEventListener('click', () => navigator.clipboard.writeText(msg));
+      copyBtn.addEventListener('click', () => copyText(msg));
       actions.appendChild(copyBtn);
 
       const closeBtn = document.createElement('button');
@@ -1352,8 +1352,38 @@
     }
 
     // ── Copy to clipboard ──
+    // navigator.clipboard существует ТОЛЬКО в secure context (https или
+    // localhost). На этапе первичной настройки панель открыта по
+    // http://IP:5000 — там его нет, и старый код `navigator.clipboard.writeText`
+    // молча падал: пользователь жал «Скопировать», ничего не происходило
+    // (полевой отчёт 30.08, пункт 20). Фолбэк на textarea+execCommand
+    // работает и по http.
+    function _legacyCopy(text) {
+      try {
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        ta.setAttribute('readonly', '');
+        ta.style.position = 'fixed';
+        ta.style.top = '-1000px';
+        document.body.appendChild(ta);
+        ta.select();
+        const ok = document.execCommand('copy');
+        document.body.removeChild(ta);
+        return ok;
+      } catch (e) {
+        return false;
+      }
+    }
     function copyText(text) {
-      navigator.clipboard.writeText(text).then(() => toast('Скопировано'));
+      const done = () => toast('Скопировано');
+      const fail = () => toast('Не удалось скопировать автоматически — выделите текст и Ctrl+C', 'error');
+      if (window.isSecureContext && navigator.clipboard) {
+        navigator.clipboard.writeText(text)
+          .then(done)
+          .catch(() => { _legacyCopy(text) ? done() : fail(); });
+        return;
+      }
+      _legacyCopy(text) ? done() : fail();
     }
 
     // ── Экранирование для вставки в innerHTML ──

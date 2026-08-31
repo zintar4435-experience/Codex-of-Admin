@@ -125,6 +125,24 @@ for required in requirements.txt run.py app server/coc-ssh-sync.py; do
 done
 
 # ── 1. Системные зависимости ──────────────────────────────────
+# Ждём освобождения dpkg/apt: на свежем сервере часто крутится фоновый
+# `apt-get dist-upgrade` / unattended-upgrades, и наш apt-get падал с
+# «Could not get lock» на ровном месте (полевой отчёт 30.08, пункт 14).
+wait_for_apt() {
+    local waited=0
+    while fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1 \
+        || fuser /var/lib/apt/lists/lock >/dev/null 2>&1 \
+        || fuser /var/lib/dpkg/lock >/dev/null 2>&1; do
+        if [[ $waited -eq 0 ]]; then
+            warn "apt/dpkg занят другим процессом — ждём освобождения (до 5 мин)..."
+        fi
+        sleep 3
+        waited=$((waited + 3))
+        [[ $waited -ge 300 ]] && { warn "apt всё ещё занят после 5 мин — пробуем продолжить."; break; }
+    done
+}
+if ! $DRY_RUN; then wait_for_apt; fi
+
 info "Обновление пакетов..."
 run apt-get update -qq
 run apt-get install -y -qq \
