@@ -135,8 +135,9 @@ jobs:
           print("Reality validation OK")
           PY
 
-      - name: Bash syntax (install/update/bootstrap)
+      - name: Bash syntax (install/update/bootstrap/diag)
         run: |
           bash -n install.sh
           bash -n update.sh
           bash -n ../bootstrap.sh
+          bash -n ../diag-06c.sh
