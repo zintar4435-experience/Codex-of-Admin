@@ -125,6 +125,24 @@ for required in requirements.txt run.py app server/coc-ssh-sync.py; do
 done
 
 # ── 1. Системные зависимости ──────────────────────────────────
+# Ждём освобождения dpkg/apt: на свежем сервере часто крутится фоновый
+# `apt-get dist-upgrade` / unattended-upgrades, и наш apt-get падал с
+# «Could not get lock» на ровном месте (полевой отчёт 30.08, пункт 14).
+wait_for_apt() {
+    local waited=0
+    while fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1 \
+        || fuser /var/lib/apt/lists/lock >/dev/null 2>&1 \
+        || fuser /var/lib/dpkg/lock >/dev/null 2>&1; do
+        if [[ $waited -eq 0 ]]; then
+            warn "apt/dpkg занят другим процессом — ждём освобождения (до 5 мин)..."
+        fi
+        sleep 3
+        waited=$((waited + 3))
+        [[ $waited -ge 300 ]] && { warn "apt всё ещё занят после 5 мин — пробуем продолжить."; break; }
+    done
+}
+if ! $DRY_RUN; then wait_for_apt; fi
+
 info "Обновление пакетов..."
 run apt-get update -qq
 run apt-get install -y -qq \
@@ -843,11 +861,22 @@ run chmod +x /etc/cron.daily/proxy-panel-backup
 # ── 9. Создать первого админа ─────────────────────────────────
 if ! $DRY_RUN; then
     info "Инициализация БД и создание администратора..."
+    # Пароль генерируем ЗДЕСЬ и передаём в run.py через окружение —
+    # неинтерактивно. Так установка через `curl | sudo bash` больше не зависит
+    # от терминала: пользователь гарантированно получает готовые данные входа
+    # (см. финальный блок ниже). Алфавит без спецсимволов — безопасно для env.
+    ADMIN_USER="admin"
+    ADMIN_PASS="$("${PANEL_DIR}/venv/bin/python" - <<'PYGEN'
+import secrets, string
+print("".join(secrets.choice(string.ascii_letters + string.digits) for _ in range(16)))
+PYGEN
+)"
     if ! su -s /bin/bash "${PANEL_USER}" -c \
-        "export HOME=/home/proxypanel; cd '${PANEL_DIR}' && '${PANEL_DIR}/venv/bin/python' run.py --create-admin"; then
+        "export HOME=/home/proxypanel PP_ADMIN_USERNAME='${ADMIN_USER}' PP_ADMIN_PASSWORD='${ADMIN_PASS}'; cd '${PANEL_DIR}' && '${PANEL_DIR}/venv/bin/python' run.py --create-admin"; then
         warn "su не сработал — запуск от root, права будут исправлены chown'ом"
         cd "${PANEL_DIR}"
-        "${PANEL_DIR}/venv/bin/python" run.py --create-admin
+        PP_ADMIN_USERNAME="${ADMIN_USER}" PP_ADMIN_PASSWORD="${ADMIN_PASS}" \
+            "${PANEL_DIR}/venv/bin/python" run.py --create-admin
     fi
 
     chown -R "${PANEL_USER}:${PANEL_USER}" "${PANEL_DIR}/instance"
@@ -885,8 +914,16 @@ echo -e "${GREEN}╔════════════════════
 echo -e "${GREEN}║              ProxyPanel установлен!                  ║${NC}"
 echo -e "${GREEN}╠══════════════════════════════════════════════════════╣${NC}"
 echo -e "${GREEN}║${NC}  Панель доступна на:  http://${SERVER_IP}:5000      ${GREEN}║${NC}"
-echo -e "${GREEN}║${NC}  UFW уже открыл порт 5000 для первоначальной       ${GREEN}║${NC}"
-echo -e "${GREEN}║${NC}  настройки. После привязки домена закройте его:    ${GREEN}║${NC}"
+echo -e "${GREEN}╠══════════════════════════════════════════════════════╣${NC}"
+echo -e "${GREEN}║${NC}  ВОЙТИ В ПАНЕЛЬ (сохраните — пароль показан 1 раз): ${GREEN}║${NC}"
+echo -e "${GREEN}║${NC}    Логин:  ${ADMIN_USER:-admin}"
+echo -e "${GREEN}║${NC}    Пароль: ${ADMIN_PASS:-<см. выше>}"
+echo -e "${GREEN}║${NC}  Сменить пароль позже:                             ${GREEN}║${NC}"
+echo -e "${GREEN}║${NC}    ${PANEL_DIR}/venv/bin/python run.py --create-admin \\"
+echo -e "${GREEN}║${NC}      --username admin --password 'НОВЫЙ_ПАРОЛЬ'"
+echo -e "${GREEN}╠══════════════════════════════════════════════════════╣${NC}"
+echo -e "${GREEN}║${NC}  Порт 5000 — это аварийный вход в обход домена.    ${GREEN}║${NC}"
+echo -e "${GREEN}║${NC}  Закрывайте его ТОЛЬКО когда домен уже работает:   ${GREEN}║${NC}"
 echo -e "${GREEN}║${NC}    ufw delete allow 5000/tcp                       ${GREEN}║${NC}"
 echo -e "${GREEN}╠══════════════════════════════════════════════════════╣${NC}"
 echo -e "${GREEN}║${NC}  Следующие шаги:                                   ${GREEN}║${NC}"

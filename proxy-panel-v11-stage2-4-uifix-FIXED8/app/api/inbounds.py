@@ -60,6 +60,47 @@ def _validate_reality_compat(protocol: str, transport: str) -> str | None:
     return None
 
 
+def _validate_reality_ready(port: int, tcfg: dict) -> str | None:
+    """Проверяет, что Reality-инбаунд заведётся, ДО применения конфига.
+
+    Полевой провал (отчёт 30.08): пользователь создавал VLESS+Reality на 443
+    на свежей панели — и либо Xray отвергал конфиг сырым дампом «empty
+    serverNames» (изменения не сохранялись), либо, что хуже, панель по домену
+    падала наглухо. Причина у обоих одна: у Reality на 443 (shared-режим)
+    serverNames сервер берёт из panel_domain + доменов naive-инбаундов
+    (_shared_443_server_names). Пока домен панели не задан и нет naive —
+    список ПУСТ, и Reality не запускается / рвёт маршрут до панели.
+
+    Ловим это заранее человеческим сообщением, вместо дампа Xray или мёртвой
+    панели. Ключи проверяем defensively: UI их генерирует, но прямой
+    API-клиент может прислать пустые.
+    """
+    if not (tcfg.get("reality_public_key") or "").strip():
+        return "Reality: не заданы ключи. Нажмите «Перегенерировать» в форме."
+    if not (tcfg.get("reality_private_key") or "").strip():
+        return "Reality: не задан приватный ключ. Нажмите «Перегенерировать»."
+
+    if port == 443:
+        # shared-443: serverNames подставляет сервер из panel_domain + naive.
+        from app.core.xray import _shared_443_server_names
+        if not _shared_443_server_names():
+            return (
+                "Reality на 443 использует домен панели как «прикрытие», но он "
+                "ещё не задан. Сначала укажите домен панели в Настройках "
+                "(или создайте инбаунд NaiveProxy с доменом) — и повторите."
+            )
+    else:
+        # Классический Reality: serverNames обязателен (UI ставит decoy-домен,
+        # но прямой API-клиент или ручная правка могли оставить пусто).
+        names = tcfg.get("reality_server_names") or []
+        if not [n for n in names if (n or "").strip()]:
+            return (
+                "Reality: не задан serverNames (домен-прикрытие, напр. "
+                "www.cloudflare.com). Заполните его в разделе Advanced."
+            )
+    return None
+
+
 def _apply_for_engine(engine: str) -> tuple[bool, str]:
     """Применяет конфиг только нужного движка.
 
@@ -621,6 +662,11 @@ def create_inbound():
         err = _validate_reality_compat(protocol, transport)
         if err:
             return jsonify({"error": err}), 400
+        # Заведётся ли Reality (ключи + источник serverNames) — до применения,
+        # чтобы не ловить сырой дамп xray и не ронять панель (см. helper).
+        err = _validate_reality_ready(port_normalized, tcfg)
+        if err:
+            return jsonify({"error": err}), 400
         if not tcfg.get("reality_dest"):
             if port_normalized == 443:
                 tcfg["reality_dest"] = "127.0.0.1:8443"
@@ -795,6 +841,12 @@ def update_inbound(ib_id):
     # protocol (immutable в PUT) и transport должны быть VLESS+TCP.
     if ib.engine == "xray" and ib.get_transport_config().get("reality_public_key"):
         err = _validate_reality_compat(ib.protocol, ib.transport or "tcp")
+        if err:
+            return jsonify({"error": err}), 400
+        # Тот же замок, что и на create: не дать сохранить Reality без
+        # источника serverNames/ключей (напр. правка порта на 443, когда
+        # домен панели ещё не задан) — иначе панель по домену может упасть.
+        err = _validate_reality_ready(ib.port, ib.get_transport_config())
         if err:
             return jsonify({"error": err}), 400
 
