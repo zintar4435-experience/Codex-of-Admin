@@ -105,6 +105,36 @@ jobs:
           print("Non-interactive admin OK")
           PY
 
+      - name: Валидация Reality до применения
+        # Регресс-замок: Reality на 443 без источника serverNames (домен
+        # панели не задан) должен ОТКЛОНЯТЬСЯ человеческим сообщением, а не
+        # ронять панель / сыпать дампом xray (полевой отчёт 30.08, пункты 17–19).
+        env:
+          SECRET_KEY: ci-reality
+        run: |
+          python - <<'PY'
+          import os
+          os.environ["SECRET_KEY"] = "ci-reality"
+          from app import create_app
+          from app.api.inbounds import _validate_reality_ready
+          app = create_app()
+          keys = {"reality_public_key": "pub", "reality_private_key": "priv"}
+          with app.app_context():
+              # Пустая БД: ни panel_domain, ни naive → Reality на 443 нельзя.
+              err = _validate_reality_ready(443, dict(keys))
+              assert err and "домен панели" in err, err
+              # Классический Reality без serverNames — тоже отказ.
+              err2 = _validate_reality_ready(8443, dict(keys))
+              assert err2 and "serverNames" in err2, err2
+              # С serverNames — проходит.
+              ok = _validate_reality_ready(8443, {**keys, "reality_server_names": ["www.cloudflare.com"]})
+              assert ok is None, ok
+              # Без ключей — отказ.
+              err3 = _validate_reality_ready(8443, {"reality_server_names": ["x.com"]})
+              assert err3 and "ключ" in err3.lower(), err3
+          print("Reality validation OK")
+          PY
+
       - name: Bash syntax (install/update/bootstrap)
         run: |
           bash -n install.sh
