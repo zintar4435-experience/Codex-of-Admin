@@ -524,6 +524,13 @@ function renderColumn(list, emptyMsg) {
     const statusBadge = ib.enabled
       ? '<span class="badge badge-active">active</span>'
       : '<span class="badge badge-inactive">disabled</span>';
+    // Инбаунд, который панель выключила сама (напр. авто-откат shared-443,
+    // когда публичный :443 после перехода перестал отвечать) — показываем
+    // причину, иначе владелец видит «disabled» без объяснения.
+    const autoReason = (ib.extra_config && ib.extra_config.auto_disabled_reason) || '';
+    const autoBadge = (!ib.enabled && autoReason)
+      ? `<span class="badge badge-warn" title="${escapeHtml(autoReason)}"><i class="bi bi-exclamation-triangle"></i> автоотключён</span>`
+      : '';
     return `<div class="ib-item" id="ib-item-${ib.id}">
       <div class="card">
         <div class="ib-head" onclick="toggleInbCard(${ib.id})">
@@ -533,7 +540,7 @@ function renderColumn(list, emptyMsg) {
             <span class="proto proto-${escapeHtml(ib.protocol)}">${escapeHtml(ib.protocol.toUpperCase())}</span>
             <span class="text-dim">${portDomain}</span>
             <code class="text-dim">${transport}</code>
-            ${tlsBadge} ${statusBadge}
+            ${tlsBadge} ${statusBadge} ${autoBadge}
             <span class="badge" id="ib-cc-${ib.id}"><i class="bi bi-people"></i> ${ib.client_count}</span>
           </div>
           <div class="ib-actions">

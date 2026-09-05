@@ -78,7 +78,11 @@ def _run_apply(apply_id: str, engine: str, app):
             from app.api.inbounds import _apply_for_engine
             ok, msg = _apply_for_engine(engine)
             if ok:
-                _set_status(apply_id, "ok")
+                # msg при ok — не ошибка, а предупреждение (напр. shared-443:
+                # «:443 отвечает, но сертификат ещё выпускается»). Раньше
+                # терялся — владелец не видел, почему панель по домену
+                # временно не открывается. Пробрасываем в статус.
+                _set_status(apply_id, "ok", msg)
             else:
                 _set_status(apply_id, "error", msg)
         except Exception as e:

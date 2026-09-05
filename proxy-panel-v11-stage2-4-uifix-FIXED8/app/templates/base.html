@@ -1337,13 +1337,27 @@
     // UI поллит /api/system/apply-status/<id> чтобы показать результат apply.
     // Если apply упал с ошибкой — toast с текстом (красный).
     // Если ok или unknown (TTL истёк) — молча завершаем.
-    async function pollApplyStatus(applyId, attempts = 5, intervalMs = 1200) {
+    // attempts=30 × 1.2с ≈ 36с. Раньше было 5 (6с) — этого хватало на обычный
+    // reload, но переход в shared-443 длиннее: apply Caddy + apply Xray
+    // (xray -test + restart) + пост-проверка публичного :443 с ретраями —
+    // до ~25с. UI бросал опрос раньше, чем apply заканчивался, и владелец
+    // НЕ видел ни ошибку, ни сообщение об авто-откате — статус тихо
+    // протухал. Опрос останавливается сразу на ok/error, так что для
+    // быстрых apply лишних запросов нет. TTL статуса на сервере — 120с.
+    async function pollApplyStatus(applyId, attempts = 30, intervalMs = 1200) {
       if (!applyId) return;
       for (let i = 0; i < attempts; i++) {
         await new Promise(r => setTimeout(r, intervalMs));
         try {
           const s = await api('GET', `/api/system/apply-status/${applyId}`);
-          if (s.status === 'ok') return;
+          if (s.status === 'ok') {
+            // msg при ok — предупреждение (напр. shared-443: «:443 отвечает,
+            // но сертификат ещё выпускается»). Не ошибка, но владелец
+            // должен это видеть, иначе «панель по домену не открывается»
+            // выглядит как поломка.
+            if (s.msg) toast(s.msg, 'warning');
+            return;
+          }
           if (s.status === 'error') { toast('Ошибка apply: ' + (s.msg || '?'), 'error'); return; }
           if (s.status === 'unknown') return; // TTL истёк — считаем ok
           // 'pending' — продолжаем polling
