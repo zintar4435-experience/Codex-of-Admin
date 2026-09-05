@@ -101,6 +101,174 @@ def _validate_reality_ready(port: int, tcfg: dict) -> str | None:
     return None
 
 
+def _shared_443_healthcheck_sni() -> str | None:
+    """Домен для SNI пост-проверки :443 после перехода в shared-443.
+
+    Предпочитаем ПАНЕЛЬНЫЙ домен: именно он «падал наглухо» в поле, и по
+    нему Caddy отвечает осмысленным маршрутом (панель), а не forward_proxy.
+    Иначе — первый naive-домен (для него Caddy тоже держит сертификат, а
+    Reality — serverNames). Если ни того, ни другого нет, возвращаем None —
+    проверять нечем (но до shared-443 в таком состоянии вообще не доходят:
+    см. _validate_reality_ready).
+    """
+    from app.core.xray import _shared_443_server_names
+    panel = (Setting.get("panel_domain", "") or "").strip()
+    if panel:
+        return panel
+    names = _shared_443_server_names()
+    return names[0] if names else None
+
+
+def _classify_443_failure(exc: BaseException) -> str:
+    """Что означает провал пробы :443: «мёртв» или «жив, но не готов».
+
+    Граница — протокольная, а не «любая ошибка = откат»:
+
+      dead  — на :443 никто TLS-способный не ответил: connection refused
+              (порт пуст), таймаут (Reality принял TCP, а Caddy так и не
+              прислал ServerHello — relay повис), reset, EOF без TLS-алерта
+              (пир оборвал рукопожатие молча = relay уронил). Это и есть
+              полевое «панель легла наглухо» — откатывать НАДО.
+
+      alive — пришёл TLS-алерт (SSLError с причиной: internal_error,
+              handshake_failure, unrecognized_name…). Значит пакет ПРОШЁЛ
+              через Reality до Caddy и Caddy ОТВЕТИЛ — фронт живой, просто
+              у него ещё нет сертификата для этого SNI (ACME только пошёл)
+              или иная TLS-деталь. Откатывать НЕЛЬЗЯ: это потушило бы
+              правильно настроенный инбаунд во время прогрева.
+
+    Важно про порядок проверок: ssl.SSLError — подкласс OSError, поэтому
+    сначала различаем SSL-ветки, и только потом общий OSError.
+    """
+    import ssl
+    # Пир закрыл соединение молча, без алерта — relay оборвался.
+    if isinstance(exc, (ssl.SSLEOFError, ssl.SSLZeroReturnError)):
+        return "dead"
+    # Любой другой SSLError = TLS-пир существует и что-то ответил.
+    if isinstance(exc, ssl.SSLError):
+        return "alive"
+    # refused / timeout / reset и прочее на уровне сокета.
+    return "dead"
+
+
+def _healthcheck_public_443(sni: str, *, attempts: int = 3,
+                            timeout: float = 4.0) -> tuple[str, str]:
+    """Проверяет, что публичный :443 РЕАЛЬНО обслуживает трафик после
+    перехода в shared-443 (Reality на :443 → relay → Caddy на 127.0.0.1:8443).
+
+    Полевой провал: systemctl вернул 0 по обоим сервисам, но связка
+    Reality→Caddy трафик не несла — панель по домену «падала наглухо», а
+    VLESS «за настоящим сайтом» показывал «подключено» и молча ничего не
+    грузил. `xray run -test` этого не ловит: он валидирует конфиг, а не
+    живой путь. Поэтому проверяем фронт end-to-end.
+
+    Как: подключаемся к 127.0.0.1:443 (там Reality) обычным НЕ-Reality
+    клиентом с SNI=sni — ровно как браузер. Reality обязан сфолбечить и
+    прорелеить на Caddy, Caddy — стерминировать TLS и ответить HTTP.
+
+    Возвращает (вердикт, детали), вердикт ∈ {"ok", "alive", "dead"}:
+      ok    — рукопожатие прошло и пришла строка «HTTP/1.x» (всё работает);
+      alive — фронт отвечает на TLS-уровне, но пока не полноценно (нет
+              сертификата / пустой ответ после рукопожатия) — НЕ откатывать,
+              см. _classify_443_failure;
+      dead  — на :443 никто не отвечает — откатывать.
+
+    Валидность сертификата тут НЕ проверяем (CERT_NONE): за неё отвечает
+    ACME, а цель проверки — «отвечает ли фронт вообще». Ретраи с паузой:
+    Reality и Caddy только что рестартовали, даём фронту подняться, чтобы
+    не словить ложный «dead» на не успевшем забиндиться :443.
+    """
+    import socket
+    import ssl
+    import time as _t
+
+    ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    ctx.check_hostname = False      # SNI != адрес сокета (127.0.0.1)
+    ctx.verify_mode = ssl.CERT_NONE  # валидность cert — забота ACME, не этой проверки
+    verdict, last = "dead", ""
+    for i in range(attempts):
+        try:
+            raw = socket.create_connection(("127.0.0.1", 443), timeout=timeout)
+            try:
+                with ctx.wrap_socket(raw, server_hostname=sni) as tls:
+                    tls.settimeout(timeout)
+                    req = (
+                        f"GET / HTTP/1.1\r\nHost: {sni}\r\n"
+                        f"User-Agent: pp-healthcheck\r\nConnection: close\r\n\r\n"
+                    ).encode()
+                    tls.sendall(req)
+                    head = tls.recv(128)
+                if head.startswith(b"HTTP/"):
+                    return "ok", head.split(b"\r\n", 1)[0].decode("latin1", "replace")
+                # Рукопожатие ПРОШЛО (сертификат есть, relay работает), а HTTP
+                # не пришёл — фронт жив, странность на уровне ответа. Не откат.
+                verdict, last = "alive", f"рукопожатие ок, но ответ не HTTP: {head[:48]!r}"
+            finally:
+                try:
+                    raw.close()
+                except OSError:
+                    pass
+        except (OSError, ssl.SSLError) as e:
+            verdict = _classify_443_failure(e)
+            last = f"{type(e).__name__}: {e}"
+            if verdict == "alive":
+                # TLS-пир ответил — дальше ждать нечего, фронт живой.
+                return verdict, last
+        if i + 1 < attempts:
+            _t.sleep(2)
+    return verdict, last or "нет ответа"
+
+
+def _rollback_shared_443(sni: str, detail: str) -> tuple[bool, str]:
+    """Авто-откат неудавшегося перехода в shared-443.
+
+    Публичный :443 после перехода не обслуживает трафик. Возвращаем сервер
+    в заведомо рабочее состояние: отключаем Reality-инбаунд на :443 (это
+    снимает shared-режим), затем применяем конфиги в НЕ-shared порядке —
+    сначала Xray (освобождает :443), потом Caddy (возвращается на публичный
+    :443). Причину пишем в extra_config инбаунда, чтобы владелец видел в UI,
+    почему инбаунд выключен, и мог починить (домен/сертификат/PROXY-protocol)
+    и включить заново.
+    """
+    from app.core.xray import find_reality_443_inbound
+
+    reality_ib = find_reality_443_inbound()
+    if reality_ib is None:
+        # Некого откатывать (гонка / ручное вмешательство в БД). Пытаемся хотя
+        # бы вернуть Caddy на публичный :443 напрямую.
+        apply_caddy_config()
+        return False, (
+            "Публичный :443 не отвечает после перехода в shared-443, а "
+            "Reality-инбаунд на :443 для авто-отката не найден. Проверьте "
+            f"конфигурацию вручную (SNI={sni}: {detail})."
+        )
+
+    reason = (
+        "Автоотключён: после перехода в shared-443 публичный :443 перестал "
+        f"отвечать (проверка SNI={sni}: {detail}). Сервер возвращён на прямой "
+        "Caddy :443. Проверьте домен/сертификат/PROXY-protocol и включите заново."
+    )
+    reality_ib.enabled = False
+    extra = reality_ib.get_extra_config()
+    extra["auto_disabled_reason"] = reason
+    reality_ib.extra_config = json.dumps(extra, ensure_ascii=False)
+    db.session.commit()
+
+    # shared-режим снят (Reality-443 disabled) → НЕ-shared порядок apply.
+    ok_x, msg_x = apply_xray_config()
+    ok_c, msg_c = apply_caddy_config()
+    tail = ""
+    if not ok_x:
+        tail += f" Xray при откате: {msg_x}."
+    if not ok_c:
+        tail += f" Caddy при откате: {msg_c}."
+    return False, (
+        f"Переход в shared-443 отменён: публичный :443 не отвечал ({detail}). "
+        f"Reality-инбаунд '{reality_ib.tag}' отключён, Caddy возвращён на :443.{tail} "
+        f"Исправьте причину и включите инбаунд заново."
+    )
+
+
 def _apply_for_engine(engine: str) -> tuple[bool, str]:
     """Применяет конфиг только нужного движка.
 
@@ -174,16 +342,39 @@ def _apply_for_engine(engine: str) -> tuple[bool, str]:
         ok_x, msg_x = apply_xray_config()
         if not ok_x:
             # Pre-validate прошёл, но реальный systemctl restart xray
-            # упал. Это редкое состояние (например, права на /etc/xray/
-            # или systemd сбойнул). Caddy уже переехал, но рабочий xray
-            # не поднят. Лучше что мы можем — сообщить и оставить разруливать
-            # вручную (через UI: вернуть Reality на 8443 → apply вернёт всё назад).
-            return False, (
-                f"Xray apply: {msg_x}. ВНИМАНИЕ: Caddy уже переехал на "
-                f"127.0.0.1:8443, а Xray не стартанул — публичный :443 пустой. "
-                f"Откатите вручную: в UI поменяйте port у Reality с 443 на "
-                f"другой, сохраните; Caddy вернётся на :443."
+            # упал. Caddy уже переехал на loopback, а рабочий Xray не
+            # поднят → публичный :443 пустой. Авто-откат вернёт Caddy на
+            # :443 (снимет shared, отключив Reality-443).
+            return _rollback_shared_443(
+                _shared_443_healthcheck_sni() or "",
+                f"Xray apply не удался: {msg_x}",
             )
+
+        # ── ПОСТ-ПРОВЕРКА ПУБЛИЧНОГО :443 (shared-443) ──
+        # Оба сервиса рестартовали «успешно» (systemctl вернул 0), но это НЕ
+        # доказывает, что связка Reality(:443)→relay→Caddy(:8443) реально несёт
+        # трафик. Полевой случай: панель по домену «падала наглухо», а VLESS «за
+        # настоящим сайтом» показывал «подключено» и молча ничего не грузил —
+        # именно этот тихий провал. Проверяем фронт end-to-end; при провале
+        # откатываемся, чтобы сервер не остался мёртвым (владелец сам решит,
+        # чинить домен/сертификат/PROXY-protocol или отказаться от shared-443).
+        sni = _shared_443_healthcheck_sni()
+        if sni:
+            verdict, detail = _healthcheck_public_443(sni)
+            if verdict == "dead":
+                return _rollback_shared_443(sni, detail)
+            if verdict == "alive":
+                # Фронт отвечает на TLS-уровне, но ещё не полноценно — чаще
+                # всего сертификат для домена только выпускается (ACME).
+                # Откат тут навредил бы; отдаём владельцу честный статус.
+                import logging
+                logging.getLogger(__name__).warning(
+                    "shared-443: :443 жив, но не готов (SNI=%s): %s", sni, detail)
+                return True, (
+                    f"Применено. Публичный :443 отвечает, но пока не полноценно "
+                    f"({detail}). Обычно это выпуск сертификата — подождите "
+                    f"минуту и обновите страницу панели по домену."
+                )
         return True, None
 
     # Reality не на :443 → Xray первым (если был на :443, освободит),
@@ -832,6 +1023,14 @@ def update_inbound(ib_id):
         if field in data:
             setattr(ib, field, data[field])
 
+    # Включение через форму (PUT enabled=true) — тот же смысл, что toggle:
+    # снимаем пометку авто-отключения, иначе она «зависнет» на рабочем
+    # инбаунде и всплывёт ложным бейджем при следующем ручном выключении.
+    if "enabled" in data and ib.enabled:
+        extra = ib.get_extra_config()
+        if extra.pop("auto_disabled_reason", None) is not None:
+            ib.extra_config = json.dumps(extra, ensure_ascii=False)
+
     if "transport_config" in data:
         ib.transport_config = json.dumps(data["transport_config"])
     if "extra_config" in data:
@@ -896,6 +1095,13 @@ def delete_inbound(ib_id):
 def toggle_inbound(ib_id):
     ib = Inbound.query.get_or_404(ib_id)
     ib.enabled = not ib.enabled
+    # Включаем заново — снимаем пометку авто-отключения: если apply снова
+    # упадёт по :443, _rollback_shared_443 поставит свежую причину; если
+    # поднимется — старая пометка не должна «висеть» на рабочем инбаунде.
+    if ib.enabled:
+        extra = ib.get_extra_config()
+        if extra.pop("auto_disabled_reason", None) is not None:
+            ib.extra_config = json.dumps(extra, ensure_ascii=False)
     db.session.commit()
 
     from app.core.apply_runner import start_apply

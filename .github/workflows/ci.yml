@@ -135,6 +135,73 @@ jobs:
           print("Reality validation OK")
           PY
 
+      - name: Авто-откат shared-443 при мёртвом :443
+        # Регресс-замок на полевую аварию: при переходе в shared-443 (Reality
+        # на :443 → relay → Caddy на 8443) systemctl мог вернуть 0, но связка
+        # трафик не несла — панель по домену «падала наглухо», а VLESS «за
+        # настоящим сайтом» показывал «подключено» и молча ничего не грузил
+        # (`xray run -test` этого не ловит — он валидирует конфиг, не живой
+        # путь). Проверяем: (1) health-check :443 fail-closed на закрытом порту
+        # без исключения; (2) SNI берётся из panel_domain; (3) авто-откат
+        # отключает Reality-443, пишет причину и применяет xray→caddy.
+        env:
+          SECRET_KEY: ci-rollback
+        run: |
+          python - <<'PY'
+          import os, json
+          os.environ["SECRET_KEY"] = "ci-rollback"
+          from app import create_app
+          import app.api.inbounds as inb
+          from app.models import db, Inbound, Setting
+          app = create_app()
+          with app.app_context():
+              db.create_all()
+              Setting.set("panel_domain", "panel.example.com")
+              # (1) health-check на закрытом :443 → «dead» (без исключений).
+              verdict, detail = inb._healthcheck_public_443(
+                  "panel.example.com", attempts=1, timeout=1.0)
+              assert verdict == "dead", ("закрытый :443 должен быть dead", verdict, detail)
+              # (1b) Классификатор: откат ТОЛЬКО когда никто TLS-способный
+              # не ответил. TLS-алерт (SSLError с причиной) = фронт жив,
+              # сертификат ещё выпускается — НЕ откатывать (иначе тушим
+              # правильный инбаунд во время прогрева ACME).
+              import ssl, socket
+              cls = inb._classify_443_failure
+              assert cls(ConnectionRefusedError()) == "dead"
+              assert cls(TimeoutError()) == "dead"
+              assert cls(socket.timeout()) == "dead"
+              assert cls(ConnectionResetError()) == "dead"
+              assert cls(ssl.SSLEOFError()) == "dead"          # EOF без алерта
+              assert cls(ssl.SSLZeroReturnError()) == "dead"
+              assert cls(ssl.SSLError(1, "TLSV1_ALERT_INTERNAL_ERROR")) == "alive"
+              assert cls(ssl.SSLError(1, "SSLV3_ALERT_HANDSHAKE_FAILURE")) == "alive"
+              # (2) SNI: панельный домен предпочтительнее naive.
+              assert inb._shared_443_healthcheck_sni() == "panel.example.com"
+              # (3) авто-откат отключает Reality-443 и восстанавливает :443.
+              ib = Inbound(
+                  tag="reality443", engine="xray", protocol="vless", port=443,
+                  domain="panel.example.com", tls_enabled=False, transport="tcp",
+                  transport_config=json.dumps({
+                      "reality_public_key": "pub", "reality_private_key": "priv",
+                      "reality_short_ids": [""],
+                  }),
+                  extra_config="{}", enabled=True,
+              )
+              db.session.add(ib); db.session.commit()
+              ib_id = ib.id
+              order = []
+              inb.apply_xray_config = lambda: (order.append("xray"), (True, "ok"))[1]
+              inb.apply_caddy_config = lambda: (order.append("caddy"), (True, "ok"))[1]
+              ok_r, msg = inb._rollback_shared_443("panel.example.com", "timeout")
+              assert ok_r is False, msg
+              db.session.expire_all()
+              ib2 = db.session.get(Inbound, ib_id)
+              assert ib2.enabled is False, "Reality-443 должен быть отключён"
+              assert ib2.get_extra_config().get("auto_disabled_reason"), "нет причины авто-отключения"
+              assert order == ["xray", "caddy"], ("порядок: xray освобождает :443, caddy занимает", order)
+          print("Shared-443 auto-rollback OK")
+          PY
+
       - name: Bash syntax (install/update/bootstrap/diag)
         run: |
           bash -n install.sh
