@@ -389,6 +389,19 @@
         </div>
         <div class="form-text">Текущий IP этого сервера (скрыт; нажмите глаз, чтобы показать на время). Подставляется в ссылки клиентов, если у inbound нет своего домена.</div>
       </div>
+      <div class="form-group">
+        <label class="form-label">Где стоит сервер</label>
+        <select class="form-control" id="c-server-region">
+          <option value="intl">Не в России (обычный режим)</option>
+          <option value="ru">В России (для клиентов за границей)</option>
+        </select>
+        <div class="form-text">
+          Сообщает приложению Codex of Connect, в каком режиме работать с этим сервером.
+          <b>Не в России</b> — как обычно: российские сайты и приложения идут напрямую, остальное через сервер.
+          <b>В России</b> — наоборот, для людей за границей: российские сайты, банки и Госуслуги идут через сервер, всё остальное напрямую.
+          Режим попадает в ссылки клиентов: после смены клиентам нужно обновить подписку (или заново добавить ссылку).
+        </div>
+      </div>
     </div>
   </div>
 
@@ -840,6 +853,7 @@ async function loadConfig() {
     document.getElementById('c-panel-domain').value   = s.panel_domain || '';
     document.getElementById('c-acme-email').value     = s.acme_email || '';
     document.getElementById('c-server-ip').value      = s.server_ip || '';
+    document.getElementById('c-server-region').value  = s.server_region || 'intl';
     // Если IP не задан вручную — подставляем определённый автоматически.
     loadDetectedIp();
     document.getElementById('c-xray-log').value       = s.xray_log_level || 'warning';
@@ -951,6 +965,7 @@ async function saveConfig() {
     panel_domain:         document.getElementById('c-panel-domain').value.trim(),
     acme_email:           document.getElementById('c-acme-email').value.trim(),
     server_ip:            document.getElementById('c-server-ip').value.trim(),
+    server_region:        document.getElementById('c-server-region').value,
     xray_log_level:       document.getElementById('c-xray-log').value,
     xray_domain_strategy: document.getElementById('c-xray-strategy').value,
     xray_api_port:        document.getElementById('c-xray-port').value,

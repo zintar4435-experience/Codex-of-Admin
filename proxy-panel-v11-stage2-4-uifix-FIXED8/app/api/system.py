@@ -808,6 +808,10 @@ ALLOWED_SETTINGS = {
     "panel_domain", "acme_email", "xray_log_level",
     "xray_domain_strategy", "xray_api_port", "server_ip",
     "xray_dns", "xray_dns_query_strategy",
+    # Расположение сервера для режима «За границей» приложения (см.
+    # app/core/server_region.py). Xray/Caddy не трогает — влияет только на
+    # метку в ссылках клиентов.
+    "server_region",
 }
 
 XRAY_SETTINGS = {
@@ -898,6 +902,19 @@ def _validate_setting(key: str, value) -> tuple[bool, str | None, object]:
         if not ok:
             return False, err, None
         return True, None, value
+    if key == "server_region":
+        # Пусто — значение по умолчанию («не в России»): так ведёт себя любой
+        # сервер, где переключатель не трогали. Иначе строго одно из двух.
+        from app.core import server_region
+        if not value:
+            return True, None, server_region.DEFAULT
+        normalized = str(value).strip().lower()
+        if normalized not in server_region.REGIONS:
+            return False, (
+                "Расположение сервера: допустимо только "
+                + " или ".join(server_region.REGIONS)
+            ), None
+        return True, None, normalized
     if key == "server_ip":
         # Этот ключ — display-only (показывается в подписке/UI). Если
         # юзер хочет руками задать «логичный» IP отличный от detected —

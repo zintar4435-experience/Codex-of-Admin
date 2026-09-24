@@ -12,6 +12,7 @@ from flask import Blueprint, request, jsonify
 from flask_login import login_required
 
 from app.models import db, Client, Inbound, Setting
+from app.core import server_region
 from app.core.audit import log_action
 from app.core.input_validators import validate_uuid, validate_email
 
@@ -99,6 +100,10 @@ def _vless_link(client: Client, inbound: Inbound) -> str:
         "encryption": "none",
     }
     params.update(_transport_link_params(inbound, tcfg))
+    # Метка расположения сервера для приложения (режим «За границей», см.
+    # app/core/server_region.py). Ставим до ветвления — она нужна во всех
+    # вариантах VLESS-ссылки. Чужие клиенты неизвестный параметр игнорируют.
+    params[server_region.LINK_PARAM] = server_region.current()
     # Режим «за настоящим сайтом»: снаружи клиент идёт на ДОМЕН и порт 443
     # (там Caddy), а не на внутренний порт Xray — тот слушает только loopback.
     # TLS терминирует Caddy сертификатом нашего же домена, поэтому
@@ -178,7 +183,10 @@ def _naive_link(client: Client, inbound: Inbound) -> str:
     # иначе авторизация не сойдётся (баг с пустым паролем в ссылке).
     password = client.password or client.uuid
     domain = _server(inbound)
-    return f"naive+https://{urllib.parse.quote(username)}:{urllib.parse.quote(password)}@{domain}:443#{urllib.parse.quote(client.name)}"
+    # Метка расположения сервера (см. app/core/server_region.py) — query перед
+    # #имя: парсер приложения читает её из стандартных параметров URI.
+    region = urllib.parse.urlencode({server_region.LINK_PARAM: server_region.current()})
+    return f"naive+https://{urllib.parse.quote(username)}:{urllib.parse.quote(password)}@{domain}:443?{region}#{urllib.parse.quote(client.name)}"
 
 
 def _socks_link(client: Client, inbound: Inbound) -> str:
@@ -235,6 +243,8 @@ def _ssh_link(client: Client, inbound: Inbound) -> str | None:
     # выделяющимся среди прочего SSH. Маскировкой это не является — что это
     # SSH, видно с первого байта в любом случае.
     params.append("cv=SSH-2.0-OpenSSH_9.6")
+    # Метка расположения сервера (см. app/core/server_region.py).
+    params.append(f"{server_region.LINK_PARAM}={server_region.current()}")
 
     query = "&".join(params)
     return (f"ssh://{urllib.parse.quote(username)}@{server}:{port}"
