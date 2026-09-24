@@ -202,6 +202,72 @@ jobs:
           print("Shared-443 auto-rollback OK")
           PY
 
+      - name: Метка расположения сервера в ссылках
+        # Регресс-замок режима «За границей»: панель кладёт coc_region=intl|ru
+        # во все ссылки, которые понимает приложение (VLESS Reality, VLESS «за
+        # сайтом», NaiveProxy). По умолчанию intl — работающие серверы после
+        # обновления ведут себя как раньше; мусор в БД не переворачивает режим;
+        # API принимает только ru/intl.
+        env:
+          SECRET_KEY: ci-region
+        run: |
+          python - <<'PY'
+          import os, json, urllib.parse
+          os.environ["SECRET_KEY"] = "ci-region"
+          from app import create_app
+          from app.models import db, Inbound, Client, Setting
+          from app.api.clients import generate_link
+          from app.api.system import _validate_setting
+          from app.core import server_region
+          app = create_app()
+
+          def region_of(link):
+              # URI без схемы-экзотики: naive+https → https, чтобы urlparse взял query.
+              u = urllib.parse.urlparse(link.replace("naive+https://", "https://", 1))
+              return urllib.parse.parse_qs(u.query).get("coc_region", [None])[0]
+
+          with app.app_context():
+              db.create_all()
+              Setting.set("panel_domain", "panel.example.com"); db.session.commit()
+              reality = Inbound(tag="r", engine="xray", protocol="vless", port=8443, transport="tcp",
+                  transport_config=json.dumps({"reality_public_key":"pub","reality_private_key":"priv",
+                                               "reality_server_names":["www.cloudflare.com"],"reality_short_ids":["ab"]}),
+                  extra_config="{}", enabled=True)
+              behind = Inbound(tag="w", engine="xray", protocol="vless", port=20001, transport="ws",
+                  domain="site.example.com",
+                  transport_config=json.dumps({"behind_caddy": True, "path": "/a7f3c1b9e2x"}),
+                  extra_config="{}", enabled=True)
+              naive = Inbound(tag="n", engine="naive", protocol="naive", domain="nv.example.com",
+                  transport_config="{}", extra_config="{}", enabled=True)
+              db.session.add_all([reality, behind, naive]); db.session.commit()
+              cs = [Client(name="c1", inbound_id=ib.id, uuid="11111111-2222-3333-4444-555555555555",
+                           username="u1", password="p1") for ib in (reality, behind, naive)]
+              db.session.add_all(cs); db.session.commit()
+              links = lambda: [generate_link(c, c.inbound) for c in cs]
+
+              # 1. По умолчанию (настройка не задана) — intl во всех ссылках.
+              for l in links():
+                  assert region_of(l) == "intl", l
+              # 2. Сервер в России — ru во всех ссылках, остальные параметры целы.
+              Setting.set("server_region", "ru"); db.session.commit()
+              ls = links()
+              for l in ls:
+                  assert region_of(l) == "ru", l
+              assert "pbk=pub" in ls[0] and "security=reality" in ls[0], ls[0]
+              assert "security=tls" in ls[1] and "path=%2Fa7f3c1b9e2x" in ls[1], ls[1]
+              assert ls[2].startswith("naive+https://u1:p1@") and ls[2].endswith("#c1"), ls[2]
+              # 3. Мусор в БД — трактуется как intl (не переворачивает режим у всех).
+              Setting.set("server_region", "mars"); db.session.commit()
+              assert server_region.current() == "intl"
+              # 4. Валидация API: ru/intl принимаются, пусто → intl, мусор → отказ.
+              assert _validate_setting("server_region", "ru") == (True, None, "ru")
+              assert _validate_setting("server_region", " INTL ") == (True, None, "intl")
+              assert _validate_setting("server_region", "") == (True, None, "intl")
+              ok, err, _ = _validate_setting("server_region", "mars")
+              assert ok is False and err, err
+          print("Region marker OK")
+          PY
+
       - name: Bash syntax (install/update/bootstrap/diag)
         run: |
           bash -n install.sh
