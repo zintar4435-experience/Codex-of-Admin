@@ -29,6 +29,13 @@
   .ib-clients th, .ib-clients td { padding:6px 6px; font-size:12px; }
   .ib-clients .btn-icon { padding:4px 7px; }
   .ib-clients .table-wrap { overflow-x:auto; }
+  /* Выбор маскировки Reality: два крупных варианта вместо полей dest/SNI. */
+  .mask-choice { display:flex; flex-direction:column; gap:8px; margin-bottom:12px; }
+  .mask-opt { display:flex; gap:10px; align-items:flex-start; padding:10px 12px; cursor:pointer;
+              border:1px solid var(--border); border-radius:8px; font-size:13px; line-height:1.45; }
+  .mask-opt:has(input:checked) { border-color:var(--accent); background:rgba(64,156,255,0.06); }
+  .mask-opt input { margin-top:3px; flex-shrink:0; }
+  .mask-opt .form-text { display:block; margin-top:2px; }
 </style>
 
 <div class="flex justify-between items-center mb-2" style="margin-bottom:20px">
@@ -222,11 +229,64 @@
            и при редактировании инбаунда, у которого reality_public_key
            уже сохранён в transport_config. -->
       <div id="reality-section" class="form-group hidden" style="border:1px solid var(--border);border-radius:8px;padding:14px;background:var(--surface2)">
-        <label class="form-label" style="margin-bottom:10px">
-          <i class="bi bi-mask"></i> Reality settings
+        <label class="form-label" style="margin-bottom:6px">
+          <i class="bi bi-mask"></i> Маскировка
         </label>
-        <div class="form-text" style="margin-bottom:12px">
-          Reality маскирует TLS-handshake под чужой сайт (dest). Своего сертификата не нужно. Клиенту достаточно public key, server name и short ID — всё автоматически попадёт в vless:// ссылку.
+        <div class="form-text" style="margin-bottom:10px">
+          Снаружи подключение выглядит как обычный заход на сайт. Выберите, на какой.
+        </div>
+
+        <!-- Выбор маскировки (полевой случай 26.09): Reality на 443 всегда
+             маскируется под собственный домен панели, и у части провайдеров
+             такое соединение «замерзало» после первых килобайт — текст в
+             Telegram шёл, картинки и страницы нет. Тот же сервер под
+             www.samsung.com (3x-ui) работал стабильно. Поэтому «под известный
+             сайт» — первым пунктом и по умолчанию. 443 при этом остаётся за
+             панелью, NaiveProxy и сайтом владельца: подключение встаёт на
+             отдельный порт (подсказка под полем «Порт» покажет, открыт ли он
+             в фаерволе, и команду, если нет).
+             Выбор — производная от порта: 443 = «под ваш сайт» (shared-443),
+             любой другой = «под известный сайт» (dest/serverNames из формы). -->
+        <div class="mask-choice">
+          <label class="mask-opt">
+            <input type="radio" name="reality-mask" value="site" onchange="onRealityMaskChange()">
+            <span>
+              <b>Под известный сайт</b> — так же, как в 3x-ui
+              <span class="form-text">Подключение выглядит как заход на крупный сайт (по умолчанию
+              www.samsung.com). Встаёт на отдельный порт, 443 не трогает: панель, NaiveProxy и ваш
+              сайт работают как раньше. Порт один раз открывается на сервере — команда появится
+              под полем «Порт», если он закрыт.</span>
+            </span>
+          </label>
+          <label class="mask-opt">
+            <input type="radio" name="reality-mask" value="own" onchange="onRealityMaskChange()">
+            <span>
+              <b>Под ваш сайт</b> — порт 443
+              <span class="form-text">Подключение выглядит как заход на домен вашей панели. У части
+              провайдеров малоизвестные домены «замерзают»: текст проходит, картинки и страницы нет.
+              Если пользователи жалуются на такое — выберите «Под известный сайт».</span>
+            </span>
+          </label>
+        </div>
+
+        <div id="reality-site-box" class="hidden" style="margin-bottom:12px">
+          <label class="form-label" style="font-size:11px">Сайт</label>
+          <div style="display:flex;gap:8px">
+            <input type="text" class="form-control" id="f-reality-site" list="reality-site-presets"
+                   placeholder="www.samsung.com" oninput="onRealitySiteInput()"
+                   onchange="setRealitySite(this.value)">
+            <button type="button" class="btn btn-outline btn-sm" id="btn-reality-site-check" onclick="checkRealitySite()">Проверить</button>
+          </div>
+          <datalist id="reality-site-presets">
+            <option value="www.samsung.com">
+            <option value="www.asus.com">
+            <option value="www.nvidia.com">
+            <option value="dl.google.com">
+            <option value="www.microsoft.com">
+          </datalist>
+          <div class="form-text" id="reality-site-status" style="margin-top:6px">
+            Менять не обязательно. Другой сайт можно выбрать из списка или вписать свой и нажать «Проверить».
+          </div>
         </div>
 
         <!-- Info-bar для shared-443 режима. Показывается когда port=443.
@@ -235,32 +295,29 @@
              (используются наши panel/naive домены). См. бэкенд:
              app/core/xray.py:_compute_reality_runtime_fields. -->
         <div id="reality-shared-info" class="hidden" style="margin-bottom:12px;padding:10px 12px;border-radius:6px;background:rgba(64,156,255,0.10);border-left:3px solid #4096ff;font-size:13px;line-height:1.5">
-          <strong><i class="bi bi-info-circle"></i> Shared-443 режим</strong><br>
-          Этот Reality-инбаунд эксклюзивно занимает порт <code>443</code>.
-          Caddy при сохранении переедет на <code>127.0.0.1:8443</code>, и Reality будет
-          проксировать на него весь не-Reality трафик (NaiveProxy-клиенты, обращения к панели,
-          сканеры). Снаружи всё выглядит как единый HTTPS-сайт на 443.
-          Поля <em>Decoy (dest)</em> и <em>Server Names</em> в этом режиме заполняются
-          автоматически — используются домены вашей панели и NaiveProxy.
+          <strong><i class="bi bi-info-circle"></i> Порт 443 общий с панелью</strong><br>
+          Подключение встаёт на <code>443</code> перед панелью и NaiveProxy: всё, что не VPN,
+          оно передаёт им дальше, и снаружи сервер выглядит как один обычный сайт.
+          Маскировка — домены вашей панели и NaiveProxy, подставляются сами.
         </div>
 
-        <!-- Advanced — dest/serverNames. По умолчанию свёрнуто.
-             В shared-режиме их значения сервером игнорируются (но в БД
-             сохраняются на случай выхода из shared). В классическом
-             Reality (port≠443) — обязательные поля. -->
+        <!-- Для опытных — dest/serverNames. По умолчанию свёрнуто: поле
+             «Сайт» выше заполняет их само. В shared-режиме их значения
+             сервером игнорируются (но в БД сохраняются на случай выхода из
+             shared). В классическом Reality (port≠443) — обязательные поля. -->
         <details id="reality-advanced" style="margin-bottom:12px">
           <summary style="cursor:pointer;font-size:12px;color:var(--text-dim);user-select:none">
-            <i class="bi bi-sliders"></i> Advanced: dest / serverNames
+            <i class="bi bi-sliders"></i> Для опытных: dest / serverNames
           </summary>
           <div style="margin-top:10px">
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
               <div>
                 <label class="form-label" style="font-size:11px">Decoy (dest)</label>
-                <input type="text" class="form-control" id="f-reality-dest" placeholder="www.cloudflare.com:443">
+                <input type="text" class="form-control" id="f-reality-dest" placeholder="www.samsung.com:443">
               </div>
               <div>
                 <label class="form-label" style="font-size:11px">Server Names (csv)</label>
-                <input type="text" class="form-control" id="f-reality-snames" placeholder="www.cloudflare.com">
+                <input type="text" class="form-control" id="f-reality-snames" placeholder="www.samsung.com">
               </div>
             </div>
             <div class="form-text" style="margin-top:8px;font-size:11px">
@@ -516,8 +573,11 @@ function renderColumn(list, emptyMsg) {
                      : ib.engine === 'ssh'  ? 'ssh' : 'https';
     // У SSH бейджа TLS быть не должно: там своё шифрование, а не TLS, и
     // ярлык «TLS» врал бы про то, как узел выглядит на проводе. Пишем честно.
+    // У Reality вместо «plain» — бейдж маскировки ниже (шифрование там есть).
+    const isReality = ib.engine === 'xray' && (ib.transport_config || {}).reality_public_key;
     const tlsBadge = ib.engine === 'ssh'
       ? '<span class="badge badge-active"><i class="bi bi-key-fill"></i> ключи</span>'
+      : isReality ? ''
       : (ib.tls_enabled || ib.engine === 'naive')
         ? '<span class="badge badge-active"><i class="bi bi-lock-fill"></i> TLS</span>'
         : '<span class="badge badge-inactive">plain</span>';
@@ -531,6 +591,12 @@ function renderColumn(list, emptyMsg) {
     const autoBadge = (!ib.enabled && autoReason)
       ? `<span class="badge badge-warn" title="${escapeHtml(autoReason)}"><i class="bi bi-exclamation-triangle"></i> автоотключён</span>`
       : '';
+    // Reality: под что маскируется — видно сразу, без открытия формы.
+    const tcC = ib.transport_config || {};
+    const maskBadge = (ib.engine === 'xray' && tcC.reality_public_key)
+      ? `<span class="badge" title="Маскировка"><i class="bi bi-mask"></i> ${
+          ib.port === 443 ? 'ваш сайт' : escapeHtml((tcC.reality_server_names || [])[0] || '—')}</span>`
+      : '';
     return `<div class="ib-item" id="ib-item-${ib.id}">
       <div class="card">
         <div class="ib-head" onclick="toggleInbCard(${ib.id})">
@@ -540,7 +606,7 @@ function renderColumn(list, emptyMsg) {
             <span class="proto proto-${escapeHtml(ib.protocol)}">${escapeHtml(ib.protocol.toUpperCase())}</span>
             <span class="text-dim">${portDomain}</span>
             <code class="text-dim">${transport}</code>
-            ${tlsBadge} ${statusBadge} ${autoBadge}
+            ${tlsBadge} ${maskBadge} ${statusBadge} ${autoBadge}
             <span class="badge" id="ib-cc-${ib.id}"><i class="bi bi-people"></i> ${ib.client_count}</span>
           </div>
           <div class="ib-actions">
@@ -826,7 +892,9 @@ function onEngineChange() {
   // путь в Xray на loopback. У naive и ssh смысла не имеет.
   const bcGroup = document.getElementById('behind-caddy-group');
   if (bcGroup) {
-    bcGroup.classList.toggle('hidden', engine !== 'xray');
+    // С Reality режим несовместим — пока выбран Reality, флажок не показываем.
+    const realityOn = !document.getElementById('reality-section').classList.contains('hidden');
+    bcGroup.classList.toggle('hidden', engine !== 'xray' || realityOn);
     if (engine !== 'xray') document.getElementById('f-behind-caddy').checked = false;
   }
   if (engine === 'naive') {
@@ -840,10 +908,11 @@ function onEngineChange() {
 function resetForm() {
   ['f-tag','f-domain','f-port','f-path','f-probe',
    'f-reality-dest','f-reality-snames','f-reality-sids',
-   'f-reality-pubkey','f-reality-privkey'].forEach(id => {
+   'f-reality-pubkey','f-reality-privkey','f-reality-site'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.value = '';
   });
+  setRealitySiteStatus('');
   document.getElementById('f-engine').value = 'xray';
   document.getElementById('f-protocol').value = 'vless';
   document.getElementById('f-transport').value = 'tcp';
@@ -880,10 +949,12 @@ const TEMPLATES = {
     transport: 'tcp', path: '', tls: false,
     // reality: true — флаг для applyTemplate, чтобы он подёрнул /reality-keys
     // и заполнил Reality-секцию. Сами поля заполняются в applyTemplate.
-    // port=443: shared-443 режим. Caddy автоматически уйдёт на 127.0.0.1:8443,
-    // Reality станет фронтом, проксируя non-Reality трафик обратно на Caddy.
-    // dest/serverNames игнорируются в shared (заполняются сервером авто).
+    // mask: 'site' — по умолчанию «под известный сайт» (www.samsung.com) на
+    // отдельном порту: applyTemplate заменит port=443 на свободный из
+    // SITE_MASK_PORTS. Почему не shared-443 — см. комментарий у .mask-choice.
+    // Вариант «под ваш сайт» (443, shared) остаётся одним кликом в форме.
     reality: true,
+    mask: 'site',
   },
   'naive': {
     label: 'NaiveProxy',
@@ -951,15 +1022,9 @@ async function applyTemplate(key) {
   // ставим cloudflare как decoy (широко распространённая цель с
   // предсказуемым TLS-handshake'ом).
   if (t.reality) {
-    if (t.port === 443) {
-      document.getElementById('f-reality-dest').value = '';
-      document.getElementById('f-reality-snames').value = '';
-    } else {
-      document.getElementById('f-reality-dest').value = 'www.cloudflare.com:443';
-      document.getElementById('f-reality-snames').value = 'www.cloudflare.com';
-    }
     document.getElementById('f-reality-sids').value = '';
     showRealitySection(true);
+    setRealityMask(t.mask === 'site' ? 'site' : 'own');
     try {
       await generateRealityKeys();
     } catch (e) {
@@ -983,6 +1048,13 @@ function showRealitySection(visible) {
   if (!sec) return;
   sec.classList.toggle('hidden', !visible);
   if (tlsGroup) tlsGroup.classList.toggle('hidden', visible);
+  // «За настоящим сайтом» с Reality несовместим (см. onBehindCaddyToggle) —
+  // пока выбран Reality, флажок прячем, чтобы не путал.
+  const bcGroup = document.getElementById('behind-caddy-group');
+  if (bcGroup) {
+    const engine = document.getElementById('f-engine').value;
+    bcGroup.classList.toggle('hidden', visible || engine !== 'xray');
+  }
   // Reality требует транспорт TCP — при активном Reality фиксируем TCP и
   // блокируем выбор, чтобы нельзя было сохранить Reality+ws/grpc (handshake
   // сломается). При выключении Reality снова разблокируем.
@@ -997,7 +1069,7 @@ function showRealitySection(visible) {
   } else {
     // Чистим Reality-поля, чтобы они не уехали в transport_config при save
     ['f-reality-dest','f-reality-snames','f-reality-sids',
-     'f-reality-pubkey','f-reality-privkey'].forEach(id => {
+     'f-reality-pubkey','f-reality-privkey','f-reality-site'].forEach(id => {
       const el = document.getElementById(id);
       if (el) el.value = '';
     });
@@ -1025,6 +1097,105 @@ function updateRealitySharedInfo() {
   // пользователь сам решит.
   if (shared && adv.open) {
     adv.open = false;
+  }
+  // Выбор маскировки — производная от порта: 443 = «под ваш сайт», иначе
+  // «под известный сайт». Порт поменяли руками — переключатель следует.
+  const mask = shared ? 'own' : 'site';
+  document.querySelectorAll('input[name="reality-mask"]').forEach(r => {
+    r.checked = r.value === mask;
+  });
+  const siteBox = document.getElementById('reality-site-box');
+  if (siteBox) siteBox.classList.toggle('hidden', !realityVisible || shared);
+  if (realityVisible && !shared) {
+    const site = document.getElementById('f-reality-site');
+    // Поле сайта пустое (порт сменили с 443 или старый инбаунд) — берём
+    // первое имя из serverNames, а если и там пусто — сайт по умолчанию.
+    if (site && !site.value.trim()) {
+      const first = document.getElementById('f-reality-snames').value.split(',')[0].trim();
+      setRealitySite(first || REALITY_SITE_DEFAULT);
+    }
+  }
+}
+
+// ── Маскировка Reality: «под известный сайт» / «под ваш сайт» ─────────
+const REALITY_SITE_DEFAULT = 'www.samsung.com';
+// Порты для «под известный сайт»: первый, не занятый другим подключением.
+// Альтернативные HTTPS-порты, привычные для сайтов. 8443 не берём: в режиме
+// общего 443 его занимает Caddy на loopback.
+const SITE_MASK_PORTS = [2083, 2087, 2096, 9443, 10443];
+
+function freeSiteMaskPort() {
+  const used = new Set(inbounds.filter(i => i.id !== editId).map(i => i.port));
+  return SITE_MASK_PORTS.find(p => !used.has(p)) || SITE_MASK_PORTS[0];
+}
+
+function setRealityMask(mask) {
+  const portEl = document.getElementById('f-port');
+  if (mask === 'own') {
+    portEl.value = 443;
+  } else {
+    const cur = parseInt(portEl.value, 10);
+    if (!cur || cur === 443) portEl.value = freeSiteMaskPort();
+  }
+  updateRealitySharedInfo();
+  updateFirewallHint();
+}
+
+function onRealityMaskChange() {
+  const r = document.querySelector('input[name="reality-mask"]:checked');
+  if (r) setRealityMask(r.value);
+}
+
+// Из того, что вписали, оставляем только имя сайта: без https://, пути и порта.
+function normalizeSiteHost(raw) {
+  return (raw || '').trim().toLowerCase()
+    .replace(/^[a-z]+:\/\//, '').split('/')[0].split(':')[0];
+}
+
+// Поле «Сайт» заполняет dest и serverNames само — руками их трогать не нужно.
+function setRealitySite(host) {
+  const h = normalizeSiteHost(host);
+  document.getElementById('f-reality-site').value = h;
+  document.getElementById('f-reality-dest').value = h ? `${h}:443` : '';
+  document.getElementById('f-reality-snames').value = h;
+}
+
+function onRealitySiteInput() {
+  const h = normalizeSiteHost(document.getElementById('f-reality-site').value);
+  document.getElementById('f-reality-dest').value = h ? `${h}:443` : '';
+  document.getElementById('f-reality-snames').value = h;
+  setRealitySiteStatus('');
+}
+
+function setRealitySiteStatus(html, color) {
+  const el = document.getElementById('reality-site-status');
+  if (!el) return;
+  el.style.color = color || '';
+  el.innerHTML = html || 'Менять не обязательно. Другой сайт можно выбрать из списка или вписать свой и нажать «Проверить».';
+}
+
+// Проверка сайта с сервера: TLS 1.3, HTTP/2, X25519, не заблокирован ли.
+// Та же проверка, что на странице «Заметность».
+async function checkRealitySite() {
+  const host = normalizeSiteHost(document.getElementById('f-reality-site').value);
+  if (!host) { toast('Впишите сайт', 'error'); return; }
+  const btn = document.getElementById('btn-reality-site-check');
+  btn.disabled = true;
+  setRealitySiteStatus('Проверяю…');
+  try {
+    const r = await api('POST', '/api/stealth/target', {host});
+    if (r.ok) {
+      setRealitySiteStatus(`✅ ${escapeHtml(host)} подходит`
+        + (r.ms != null ? ` · ответ за ${r.ms} мс` : ''), 'var(--success, #10b981)');
+    } else {
+      setRealitySiteStatus(`⚠️ ${escapeHtml(host)} не подходит: `
+        + escapeHtml((r.problems || []).join('; ') || 'не ответил')
+        + `. Выберите другой из списка.`, 'var(--warn, #f59e0b)');
+    }
+  } catch (e) {
+    setRealitySiteStatus('Не удалось проверить: ' + escapeHtml(e.message), 'var(--warn, #f59e0b)');
+  } finally {
+    btn.disabled = false;
   }
 }
 
@@ -1131,6 +1302,9 @@ async function editInbound(id) {
     document.getElementById('f-reality-sids').value = (tc.reality_short_ids || []).join(', ');
     document.getElementById('f-reality-pubkey').value = tc.reality_public_key || '';
     document.getElementById('f-reality-privkey').value = tc.reality_private_key || '';
+    document.getElementById('f-reality-site').value =
+      ib.port === 443 ? '' : ((tc.reality_server_names || [])[0] || '');
+    setRealitySiteStatus('');
     showRealitySection(true);
   } else {
     showRealitySection(false);
@@ -1223,6 +1397,9 @@ async function saveInbound() {
     resetForm();
     load();
     pollApplyStatus(r.apply_id);
+    // Порт могли только что открыть руками — перечитываем состояние UFW,
+    // чтобы подсказка в форме не показывала устаревшее.
+    loadFirewallStatus();
   } catch(e) {
     toast(e.message, 'error');
   } finally {

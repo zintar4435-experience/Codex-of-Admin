@@ -135,6 +135,69 @@ jobs:
           print("Reality validation OK")
           PY
 
+      - name: Reality «под известный сайт» на отдельном порту
+        # Регресс-замок полевого случая 26.09: Reality на 443 под собственным
+        # доменом у части провайдеров «замерзал» (текст шёл, картинки нет), а
+        # тот же сервер под www.samsung.com (3x-ui) работал. Форма по
+        # умолчанию делает «под известный сайт» на отдельном порту. Проверяем:
+        # такое подключение идёт к чужому сайту (dest/serverNames из формы,
+        # без PROXY-заголовка), ссылка несёт этот сайт в sni и свой порт, а
+        # общий 443 рядом остаётся за вашим доменом и Caddy.
+        env:
+          SECRET_KEY: ci-mask
+          DATABASE_URL: sqlite:////tmp/ci-mask.db
+        run: |
+          python - <<'PY'
+          import os, json, urllib.parse
+          os.environ["SECRET_KEY"] = "ci-mask"
+          from app import create_app
+          from app.models import db, Inbound, Client, Setting
+          from app.core.xray import generate_xray_config, find_reality_443_inbound
+          from app.api.clients import generate_link
+          from app.api.inbounds import _validate_reality_ready
+          app = create_app()
+          priv = "4C6Ztn7qRYkQTmYGd0Ne4cLc-Bw2FrZbkPHF3vlx-nI"
+          with app.app_context():
+              db.create_all()
+              Setting.set("panel_domain", "panel.example.com"); db.session.commit()
+              own = Inbound(tag="own443", engine="xray", protocol="vless", port=443, transport="tcp",
+                            transport_config=json.dumps({"reality_public_key": "pub", "reality_private_key": priv,
+                                                         "reality_dest": "127.0.0.1:8443", "reality_short_ids": [""]}),
+                            extra_config="{}", enabled=True)
+              site = Inbound(tag="samsung", engine="xray", protocol="vless", port=2083, transport="tcp",
+                             transport_config=json.dumps({"reality_public_key": "pub", "reality_private_key": priv,
+                                                          "reality_dest": "www.samsung.com:443",
+                                                          "reality_server_names": ["www.samsung.com"],
+                                                          "reality_short_ids": [""]}),
+                             extra_config="{}", enabled=True)
+              db.session.add_all([own, site]); db.session.commit()
+              cl = Client(name="c", inbound_id=site.id, uuid="11111111-2222-3333-4444-555555555555",
+                          email="c@x", flow="xtls-rprx-vision")
+              db.session.add(cl); db.session.commit()
+
+              cfg = generate_xray_config()
+              by_tag = {i["tag"]: i for i in cfg["inbounds"]}
+              rs = by_tag["samsung"]["streamSettings"]["realitySettings"]
+              assert by_tag["samsung"]["port"] == 2083, by_tag["samsung"]["port"]
+              assert rs["dest"] == "www.samsung.com:443", rs
+              assert rs["serverNames"] == ["www.samsung.com"], rs
+              assert rs["xver"] == 0, rs
+              rs443 = by_tag["own443"]["streamSettings"]["realitySettings"]
+              assert rs443["dest"] == "127.0.0.1:8443" and "panel.example.com" in rs443["serverNames"], rs443
+              assert find_reality_443_inbound().tag == "own443"
+
+              link = generate_link(cl, site)
+              u = urllib.parse.urlparse(link)
+              q = urllib.parse.parse_qs(u.query)
+              assert u.port == 2083, link
+              assert q["security"] == ["reality"] and q["sni"] == ["www.samsung.com"], q
+
+              keys = {"reality_public_key": "pub", "reality_private_key": "priv"}
+              err = _validate_reality_ready(2083, dict(keys))
+              assert err and "Сайт" in err, err
+          print("Known-site Reality OK")
+          PY
+
       - name: Авто-откат shared-443 при мёртвом :443
         # Регресс-замок на полевую аварию: при переходе в shared-443 (Reality
         # на :443 → relay → Caddy на 8443) systemctl мог вернуть 0, но связка
