@@ -589,8 +589,11 @@ async function saveRule() {
     dst_outbound_tag: document.getElementById('r-dst-outbound').value||null,
   };
   try {
-    if (editRuleId) { await api('PUT',`/api/routing/${editRuleId}`,body); toast('Правило обновлено'); }
-    else { await api('POST','/api/routing/',body); toast('Правило создано'); }
+    const r = editRuleId
+      ? await api('PUT',`/api/routing/${editRuleId}`,body)
+      : await api('POST','/api/routing/',body);
+    toast(editRuleId ? 'Правило обновлено' : 'Правило создано');
+    pollApplyStatus(r.apply_id);
     closeModal('modal-rule'); resetRuleForm(); load();
   } catch(e) { toast(e.message,'error'); }
 }
@@ -598,7 +601,7 @@ async function saveRule() {
 async function deleteRule(id) {
   const r = rules.find(x=>x.id===id);
   if (!confirm(`Удалить правило "${r?.name}"?`)) return;
-  try { await api('DELETE',`/api/routing/${id}`); toast('Удалено'); load(); }
+  try { const res = await api('DELETE',`/api/routing/${id}`); toast('Удалено'); load(); pollApplyStatus(res.apply_id); }
   catch(e) { toast(e.message,'error'); }
 }
 
@@ -614,7 +617,8 @@ async function saveOutbound() {
     password: document.getElementById('o-pass').value.trim()||null,
   };
   try {
-    await api('POST','/api/outbounds/',body);
+    const r = await api('POST','/api/outbounds/',body);
+    pollApplyStatus(r.apply_id);
     toast('Прокси добавлен');
     closeModal('modal-outbound');
     load();
@@ -623,7 +627,7 @@ async function saveOutbound() {
 
 async function deleteOutbound(id) {
   if (!confirm('Удалить внешний прокси?')) return;
-  try { await api('DELETE',`/api/outbounds/${id}`); toast('Удалено'); load(); }
+  try { const r = await api('DELETE',`/api/outbounds/${id}`); toast('Удалено'); load(); pollApplyStatus(r.apply_id); }
   catch(e) { toast(e.message,'error'); }
 }
 

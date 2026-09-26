@@ -105,3 +105,32 @@ def start_apply(engine: str) -> str:
     t = threading.Thread(target=_run_apply, args=(apply_id, engine, app), daemon=True)
     t.start()
     return apply_id
+
+
+def commit_and_start_xray(*, validate: bool = True) -> tuple[str | None, str | None]:
+    """Сохранить изменения в БД и применить Xray В ФОНЕ.
+
+    Раньше страницы «Маршрутизация», «Безопасность», «Сплит-туннель» и
+    внешние прокси вызывали apply_xray_config() прямо в запросе: интерфейс
+    ждал `xray run -test` + перезапуск Xray (1–3 с на каждый клик), а
+    ошибку применения молча выбрасывал — правило «сохранилось», но не
+    действовало. Теперь как у инбаундов:
+      validate=True — сначала `xray run -test` на конфиге С изменениями,
+        ещё до commit: битое не попадает в БД, человек сразу видит причину;
+      затем commit и apply в фоне — ответ сразу, результат UI узнаёт по
+        apply_id (pollApplyStatus).
+    Для удалений validate=False: конфиг только упрощается.
+
+    Возвращает (apply_id, None) или (None, текст ошибки) — тогда изменения
+    откатаны.
+    """
+    from app.models import db
+    if validate:
+        from app.api.inbounds import _pre_validate_xray
+        db.session.flush()
+        ok, err = _pre_validate_xray()
+        if not ok:
+            db.session.rollback()
+            return None, err
+    db.session.commit()
+    return start_apply("xray"), None

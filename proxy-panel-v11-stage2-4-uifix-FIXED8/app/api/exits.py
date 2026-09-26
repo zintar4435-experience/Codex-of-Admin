@@ -28,15 +28,8 @@ def _clean_name(value, fallback: str) -> str:
 def _commit_and_apply():
     """Проверка конфига до commit → commit → apply в фоне.
     Возвращает (apply_id, None) или (None, текст ошибки) с откатом."""
-    from app.api.inbounds import _pre_validate_xray
-    db.session.flush()
-    ok, err = _pre_validate_xray()
-    if not ok:
-        db.session.rollback()
-        return None, err
-    db.session.commit()
-    from app.core.apply_runner import start_apply
-    return start_apply("xray"), None
+    from app.core.apply_runner import commit_and_start_xray
+    return commit_and_start_xray()
 
 
 def _exit_view(ext: ExternalOutbound) -> dict:

@@ -4,17 +4,16 @@ from datetime import datetime, timezone
 from flask import Blueprint, request, jsonify
 from flask_login import login_required
 from app.models import db, SplitTunnelList
-from app.core.xray import apply_xray_config
-from app.core.caddy import apply_caddy_config
+from app.core.apply_runner import commit_and_start_xray
 from app.core.audit import log_action
 from app.core.url_guard import validate_public_url
 
 bp = Blueprint("split_tunnel", __name__)
 
 
-def _apply_all():
-    apply_xray_config()
-    apply_caddy_config()
+# Списки сплит-туннеля живут только в маршрутизации Xray. Раньше здесь
+# вдобавок перезагружался Caddy — без всякой пользы, но в режиме «общий
+# 443» это рвало соединение с самой панелью («Failed to fetch»).
 
 
 @bp.get("/")
@@ -36,12 +35,13 @@ def create_list():
         enabled=data.get("enabled", True),
     )
     db.session.add(lst)
-    db.session.commit()
-    _apply_all()
+    apply_id, err = commit_and_start_xray()
+    if err:
+        return jsonify({"error": err}), 400
     log_action("split.create", target_type="split", target_id=lst.id,
                target_name=lst.name,
                details={"type": lst.list_type, "action": lst.action})
-    return jsonify(lst.to_dict()), 201
+    return jsonify({**lst.to_dict(), "apply_id": apply_id}), 201
 
 
 @bp.put("/<int:lst_id>")
@@ -52,11 +52,12 @@ def update_list(lst_id):
     for field in ["name", "list_type", "action", "source_url", "content", "enabled"]:
         if field in data:
             setattr(lst, field, data[field])
-    db.session.commit()
-    _apply_all()
+    apply_id, err = commit_and_start_xray()
+    if err:
+        return jsonify({"error": err}), 400
     log_action("split.update", target_type="split", target_id=lst.id,
                target_name=lst.name, details={"fields": list(data.keys())})
-    return jsonify(lst.to_dict())
+    return jsonify({**lst.to_dict(), "apply_id": apply_id})
 
 
 @bp.delete("/<int:lst_id>")
@@ -65,11 +66,10 @@ def delete_list(lst_id):
     lst = SplitTunnelList.query.get_or_404(lst_id)
     snapshot = {"id": lst.id, "name": lst.name}
     db.session.delete(lst)
-    db.session.commit()
-    _apply_all()
+    apply_id, _ = commit_and_start_xray(validate=False)
     log_action("split.delete", target_type="split",
                target_id=snapshot["id"], target_name=snapshot["name"])
-    return jsonify({"ok": True})
+    return jsonify({"ok": True, "apply_id": apply_id})
 
 
 @bp.post("/<int:lst_id>/refresh")
@@ -87,11 +87,12 @@ def refresh_list(lst_id):
         with urllib.request.urlopen(lst.source_url, timeout=30) as resp:
             lst.content = resp.read().decode("utf-8", errors="replace")
         lst.last_updated = datetime.now(timezone.utc)
-        db.session.commit()
-        _apply_all()
+        apply_id, err = commit_and_start_xray()
+        if err:
+            return jsonify({"error": err}), 400
         log_action("split.refresh", target_type="split", target_id=lst.id,
                    target_name=lst.name,
                    details={"entries": len(lst.get_entries())})
-        return jsonify(lst.to_dict())
+        return jsonify({**lst.to_dict(), "apply_id": apply_id})
     except Exception as e:
         return jsonify({"error": str(e)}), 502

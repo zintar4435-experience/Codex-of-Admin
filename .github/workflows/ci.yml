@@ -390,6 +390,60 @@ jobs:
           print("Cascade OK")
           PY
 
+      - name: Сохранения не ждут перезапуска Xray
+        # Регресс-замок отзывчивости: правила, внешние прокси, пресеты
+        # безопасности и сплит-туннель раньше перезапускали Xray прямо в
+        # запросе (1–3 с на клик) и молча теряли ошибку применения. Теперь:
+        # битое отклоняется ДО сохранения (xray run -test), остальное —
+        # сразу ответ с apply_id и применение в фоне; сплит-туннель больше
+        # не дёргает Caddy (в «общем 443» это рвало соединение с панелью).
+        # Использует Xray, скачанный шагом «Каскад».
+        env:
+          SECRET_KEY: ci-async
+          DATABASE_URL: sqlite:////tmp/ci-async.db
+        run: |
+          XRAY_LOCATION_ASSET=/tmp/xray-ci python - <<'PY'
+          import app.core.xray as X, app.core.geo_validator as G
+          X.XRAY_BINARY = G.XRAY_BINARY = "/tmp/xray-ci/xray"
+          import app.core.apply_runner as AR
+          started = []
+          AR.start_apply = lambda engine: (started.append(engine), "apply-1")[1]
+          import app.core.caddy as C
+          def no_caddy():
+              raise AssertionError("Caddy не должен перезагружаться")
+          C.apply_caddy_config = no_caddy
+          X.apply_xray_config = lambda: (_ for _ in ()).throw(AssertionError("синхронный apply"))
+          from app import create_app
+          from app.models import db, RoutingRule, SplitTunnelList
+          app = create_app(); app.config["LOGIN_DISABLED"] = True
+          with app.app_context():
+              db.create_all()
+          c = app.test_client()
+          with c.session_transaction() as s:
+              s["_csrf"] = "t"
+          H = {"X-CSRF-Token": "t"}
+          r = c.post("/api/routing/", json={"name": "ok", "action": "direct",
+                                             "match_ips": ["geoip:private"]}, headers=H)
+          assert r.status_code == 201 and r.get_json()["apply_id"] == "apply-1", r.get_json()
+          r = c.post("/api/routing/", json={"name": "bad", "action": "direct",
+                                             "match_ips": ["999.1.1.1/33"]}, headers=H)
+          assert r.status_code == 400 and "xray" in r.get_json()["error"].lower(), r.get_json()
+          with app.app_context():
+              assert [x.name for x in RoutingRule.query.all()] == ["ok"], "битое правило сохранилось"
+          r = c.post("/api/security/presets/block-bittorrent/enable", headers=H)
+          assert r.status_code == 200 and r.get_json()["apply_id"], r.get_json()
+          r = c.post("/api/split-tunnel/", json={"name": "l", "list_type": "domain",
+                                                 "action": "direct", "content": "domain:vk.com"}, headers=H)
+          assert r.status_code == 201 and r.get_json()["apply_id"], r.get_json()
+          r = c.delete("/api/split-tunnel/1", headers=H)
+          assert r.status_code == 200 and r.get_json()["apply_id"], r.get_json()
+          r = c.post("/api/outbounds/", json={"tag": "up", "protocol": "socks",
+                                              "address": "1.2.3.4", "port": 1080}, headers=H)
+          assert r.status_code == 201 and r.get_json()["apply_id"], r.get_json()
+          assert started and set(started) == {"xray"}, started
+          print("Async apply OK")
+          PY
+
       - name: Заметность — правила подбора сайта для Reality (без сети)
         # Регресс-замок страницы «Заметность» (app/core/stealth.py): сверка
         # имени с сертификатом, список заблокированных в России, «соседство»,

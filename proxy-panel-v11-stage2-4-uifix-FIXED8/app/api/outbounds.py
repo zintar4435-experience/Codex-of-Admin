@@ -2,7 +2,7 @@
 from flask import Blueprint, request, jsonify
 from flask_login import login_required
 from app.models import db, ExternalOutbound
-from app.core.xray import apply_xray_config
+from app.core.apply_runner import commit_and_start_xray
 from app.core.audit import log_action
 from app.core.input_validators import (
     validate_tag, validate_port, validate_hostname_or_ip, validate_enum,
@@ -82,12 +82,13 @@ def create_outbound():
         enabled=data.get("enabled", True),
     )
     db.session.add(out)
-    db.session.commit()
-    apply_xray_config()
+    apply_id, err = commit_and_start_xray()
+    if err:
+        return jsonify({"error": err}), 400
     log_action("outbound.create", target_type="outbound",
                target_id=out.id, target_name=out.tag,
                details={"protocol": out.protocol, "address": out.address, "port": out.port})
-    return jsonify(out.to_dict()), 201
+    return jsonify({**out.to_dict(), "apply_id": apply_id}), 201
 
 
 @bp.put("/<int:out_id>")
@@ -107,12 +108,13 @@ def update_outbound(out_id):
     for field in ["protocol", "address", "port", "username", "password", "enabled"]:
         if field in data:
             setattr(out, field, data[field])
-    db.session.commit()
-    apply_xray_config()
+    apply_id, err = commit_and_start_xray()
+    if err:
+        return jsonify({"error": err}), 400
     log_action("outbound.update", target_type="outbound",
                target_id=out.id, target_name=out.tag,
                details={"fields": list(data.keys())})
-    return jsonify(out.to_dict())
+    return jsonify({**out.to_dict(), "apply_id": apply_id})
 
 
 @bp.delete("/<int:out_id>")
@@ -128,10 +130,9 @@ def delete_outbound(out_id):
                         + ". Сначала выберите для них другой выход."}), 409
     snapshot = {"id": out.id, "tag": out.tag, "protocol": out.protocol}
     db.session.delete(out)
-    db.session.commit()
-    apply_xray_config()
+    apply_id, _ = commit_and_start_xray(validate=False)
     log_action("outbound.delete", target_type="outbound",
                target_id=snapshot["id"], target_name=snapshot["tag"],
                details={"protocol": snapshot["protocol"]})
-    return jsonify({"ok": True})
+    return jsonify({"ok": True, "apply_id": apply_id})
 

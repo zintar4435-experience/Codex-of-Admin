@@ -1157,14 +1157,37 @@
     /* Скроллбар */
     [data-theme^="term"] ::-webkit-scrollbar-thumb { background: var(--border-ink); border-radius: 0; }
 
+
+    /* ── Плавная смена страниц (View Transitions, Chrome/Edge/Яндекс) ──
+       Панель — обычные страницы, не SPA: без этого каждый переход — резкая
+       перерисовка всего экрана («словно топором рубят»). Браузер сам
+       делает короткое растворение контента, а меню (view-transition-name)
+       остаётся на месте. Браузеры без поддержки просто игнорируют. */
+    @view-transition { navigation: auto; }
+    ::view-transition-old(root), ::view-transition-new(root) { animation-duration: 140ms; }
+    .sidebar { view-transition-name: sidebar; }
+    .topbar  { view-transition-name: topbar; }
+    @media (prefers-reduced-motion: reduce) {
+      @view-transition { navigation: none; }
+    }
   </style>
-  <!-- Prefetch страниц меню при наведении (Speculation Rules API).
-       eagerness:moderate = загрузка начинается на hover — к моменту клика
-       HTML уже (частично) скачан, экономим сетевой круг (~RTT). Только
-       ссылки меню (.nav-link) — все они GET без side-эффектов. Браузеры
-       без поддержки (Firefox/Safari) просто игнорируют этот блок. -->
+  <!-- Страницы меню готовятся заранее, при наведении (Speculation Rules API).
+       eagerness:moderate = старт на hover. prerender — страница целиком
+       (HTML + её данные из API) собирается в фоне, и клик открывает её
+       мгновенно; prefetch — только HTML, экономит сетевой круг. «Сервер»
+       не пререндерим: там опрос статуса и логов каждые 5–10 с — зря
+       нагружать VPS ради наведения мышью. Все ссылки меню — GET без
+       побочных эффектов. Firefox/Safari этот блок просто игнорируют. -->
   <script type="speculationrules">
   {
+    "prerender": [{
+      "source": "document",
+      "where": { "and": [
+        { "selector_matches": ".nav-link" },
+        { "not": { "href_matches": "/server" } }
+      ] },
+      "eagerness": "moderate"
+    }],
     "prefetch": [{
       "source": "document",
       "where": { "selector_matches": ".nav-link" },
@@ -1457,6 +1480,17 @@
     // Опрос статуса раз в 15с (раньше 5с): /api/system/status кэшируется на
     // сервере, частить незачем — меньше фоновой нагрузки на VPS.
     setInterval(updateStatusBar, 15000);
+
+    // Страница собрана заранее (prerender при наведении на меню) и только
+    // что открыта: показываем её сразу, а данные тихо перечитываем — за
+    // время между наведением и кликом они могли измениться.
+    if (document.prerendering) {
+      document.addEventListener('prerenderingchange', () => {
+        updateStatusBar();
+        const reload = window.load || window.loadPresets;
+        if (typeof reload === 'function') reload();
+      }, { once: true });
+    }
 
     // ── Modal helpers ──
     function openModal(id) { document.getElementById(id).classList.add('open'); }
