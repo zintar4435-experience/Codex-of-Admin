@@ -103,7 +103,7 @@ def _vless_link(client: Client, inbound: Inbound) -> str:
     # Метка расположения сервера для приложения (режим «За границей», см.
     # app/core/server_region.py). Ставим до ветвления — она нужна во всех
     # вариантах VLESS-ссылки. Чужие клиенты неизвестный параметр игнорируют.
-    params[server_region.LINK_PARAM] = server_region.current()
+    params[server_region.LINK_PARAM] = server_region.for_inbound(inbound)
     # Режим «за настоящим сайтом»: снаружи клиент идёт на ДОМЕН и порт 443
     # (там Caddy), а не на внутренний порт Xray — тот слушает только loopback.
     # TLS терминирует Caddy сертификатом нашего же домена, поэтому
@@ -185,7 +185,7 @@ def _naive_link(client: Client, inbound: Inbound) -> str:
     domain = _server(inbound)
     # Метка расположения сервера (см. app/core/server_region.py) — query перед
     # #имя: парсер приложения читает её из стандартных параметров URI.
-    region = urllib.parse.urlencode({server_region.LINK_PARAM: server_region.current()})
+    region = urllib.parse.urlencode({server_region.LINK_PARAM: server_region.for_inbound(inbound)})
     return f"naive+https://{urllib.parse.quote(username)}:{urllib.parse.quote(password)}@{domain}:443?{region}#{urllib.parse.quote(client.name)}"
 
 
@@ -244,7 +244,7 @@ def _ssh_link(client: Client, inbound: Inbound) -> str | None:
     # SSH, видно с первого байта в любом случае.
     params.append("cv=SSH-2.0-OpenSSH_9.6")
     # Метка расположения сервера (см. app/core/server_region.py).
-    params.append(f"{server_region.LINK_PARAM}={server_region.current()}")
+    params.append(f"{server_region.LINK_PARAM}={server_region.for_inbound(inbound)}")
 
     query = "&".join(params)
     return (f"ssh://{urllib.parse.quote(username)}@{server}:{port}"

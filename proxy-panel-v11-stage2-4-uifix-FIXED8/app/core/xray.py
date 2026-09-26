@@ -18,9 +18,14 @@ log = logging.getLogger(__name__)
 
 from app.models import (
     Inbound, Client, RoutingRule, ExternalOutbound, SplitTunnelList,
-    Setting,
+    Setting, OutboundGroup,
     ROUTING_ACTION_DIRECT, ROUTING_ACTION_BLOCK,
     ROUTING_ACTION_INBOUND, ROUTING_ACTION_OUTBOUND,
+)
+
+from app.core.exits import (
+    KEY_PROTOCOLS, build_key_outbound, build_balancers, build_observatory,
+    build_inbound_exit_rules,
 )
 
 XRAY_BINARY = "/usr/local/bin/xray"
@@ -472,7 +477,11 @@ def _build_cascade_outbound(src_inbound: Inbound, dst_inbound: Inbound) -> dict:
     return {"tag": tag, "protocol": "blackhole", "settings": {}}
 
 
-def _build_external_outbound(ext: ExternalOutbound) -> dict:
+def _build_external_outbound(ext: ExternalOutbound) -> dict | None:
+    if ext.protocol in KEY_PROTOCOLS:
+        # Выход по ключу (VLESS/Trojan), см. app/core/exits.py. None — битые
+        # параметры в БД: выход пропускается, подключения идут напрямую.
+        return build_key_outbound(ext)
     if ext.protocol == "socks":
         server: dict[str, Any] = {"address": ext.address, "port": ext.port}
         if ext.username:
@@ -666,10 +675,26 @@ def generate_xray_config() -> dict:
 
     # External outbounds
     for ext in external_outbounds_db:
-        outbounds.append(_build_external_outbound(ext))
+        ob = _build_external_outbound(ext)
+        if ob is None:
+            log.warning("Выход %s пропущен: битые параметры ключа в БД", ext.tag)
+            continue
+        outbounds.append(ob)
+
+    # Группы выходов → балансировщики (+ observatory, который их проверяет).
+    balancers, observed = build_balancers(
+        OutboundGroup.query.order_by(OutboundGroup.id).all(),
+        [ob["tag"] for ob in outbounds],
+    )
 
     # --- Routing ---
     xray_routing_rules = _build_routing_rules(routing_rules_db, split_lists)
+    # Выход каждого подключения (каскад) — ПОСЛЕ ручных правил: явные
+    # правила владельца важнее. Без выхода правила нет — трафик идёт в
+    # первый outbound (direct), как и раньше.
+    xray_routing_rules.extend(build_inbound_exit_rules(
+        xray_inbounds_db, {b["tag"] for b in balancers},
+    ))
 
     # Always route Stats API to api outbound
     xray_routing_rules.insert(0, {
@@ -700,6 +725,11 @@ def generate_xray_config() -> dict:
             "rules": xray_routing_rules,
         },
     }
+    if balancers:
+        config["routing"]["balancers"] = balancers
+    observatory = build_observatory(observed)
+    if observatory:
+        config["observatory"] = observatory
 
     # DNS (DoH). Если настроен — добавляем секцию dns и заставляем direct-
     # outbound резолвить домены через встроенный DNS (DoH), а не через

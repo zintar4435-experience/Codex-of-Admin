@@ -72,7 +72,7 @@ def _validate_rule_data(data: dict) -> str | None:
         return (
             f"Неизвестные geo-коды: {', '.join(bad_codes)}. "
             f"Установленная geosite.dat (v2fly/dlc) не содержит таких категорий. "
-            f"Для России в этой базе используйте 'geosite:geolocation-ru' "
+            f"Для России в этой базе используйте 'geosite:category-ru' "
             f"вместо 'geosite:ru'. См. имена файлов в "
             f"https://github.com/v2fly/domain-list-community/tree/master/data"
         )

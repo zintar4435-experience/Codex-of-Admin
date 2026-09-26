@@ -119,6 +119,13 @@ def update_outbound(out_id):
 @login_required
 def delete_outbound(out_id):
     out = ExternalOutbound.query.get_or_404(out_id)
+    # Выход может быть выбран у подключения или входить в группу (страница
+    # «Каскад»). Удалить молча — и эти подключения тихо пойдут напрямую.
+    from app.core.exits import exit_usages
+    used = exit_usages(out.tag)
+    if used:
+        return jsonify({"error": "Выход используется: " + ", ".join(used)
+                        + ". Сначала выберите для них другой выход."}), 409
     snapshot = {"id": out.id, "tag": out.tag, "protocol": out.protocol}
     db.session.delete(out)
     db.session.commit()

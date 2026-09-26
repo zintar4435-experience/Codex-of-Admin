@@ -121,6 +121,17 @@ class Inbound(db.Model):
     enabled = db.Column(db.Boolean, default=True)
     created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
 
+    # --- Выход в интернет (каскад) ---
+    # NULL — трафик подключения выходит прямо с этого сервера (как всегда).
+    # Иначе — тег внешнего выхода (ExternalOutbound.tag) или группы выходов
+    # (OutboundGroup.tag): весь трафик подключения уходит через другой
+    # сервер. Только для Xray-инбаундов: NaiveProxy живёт в Caddy, SSH —
+    # в sshd, маршрутизация Xray их не касается. См. app/core/exits.py.
+    exit_tag = db.Column(db.String(64), nullable=True)
+    # Российские сайты при каскаде выпускать прямо с этого сервера, а не
+    # гонять через выход. Действует только когда exit_tag задан.
+    exit_ru_direct = db.Column(db.Boolean, default=False)
+
     clients = db.relationship("Client", back_populates="inbound", cascade="all, delete-orphan")
     routing_rules_src = db.relationship(
         "RoutingRule", foreign_keys="RoutingRule.src_inbound_id",
@@ -153,6 +164,8 @@ class Inbound(db.Model):
             # доступен только через GET /api/inbounds/<id>/secret
             "extra_config": self.get_extra_config(),
             "enabled": self.enabled,
+            "exit_tag": self.exit_tag,
+            "exit_ru_direct": bool(self.exit_ru_direct),
             "client_count": len(self.clients),
             "created_at": self.created_at.isoformat(),
         }
@@ -399,14 +412,32 @@ class ExternalOutbound(db.Model):
 
     id = db.Column(db.Integer, primary_key=True)
     tag = db.Column(db.String(64), unique=True, nullable=False)
-    protocol = db.Column(db.String(16), nullable=False)          # socks / http
+    protocol = db.Column(db.String(16), nullable=False)          # socks / http / vless / trojan
     address = db.Column(db.String(256), nullable=False)
     port = db.Column(db.Integer, nullable=False)
     username = db.Column(db.String(128), nullable=True)
     password = db.Column(db.String(256), nullable=True)
     enabled = db.Column(db.Boolean, default=True)
+    # --- Выходы-серверы (каскад по ключу) ---
+    # Имя для людей («Нидерланды, Aeza»). У старых SOCKS/HTTP — NULL,
+    # в интерфейсе тогда показывается тег.
+    name = db.Column(db.String(128), nullable=True)
+    # Параметры VLESS/Trojan из вставленного ключа (uuid, security, sni,
+    # pbk, транспорт…) — JSON, см. app/core/exits.py. Секрет: наружу
+    # (to_dict) не отдаётся.
+    config = db.Column(db.Text, default="{}")
+    # Где этот выход выпускает трафик в интернет: intl | ru. Определяет
+    # метку coc_region у подключений, которые идут через него.
+    region = db.Column(db.String(8), nullable=True)
+
+    def get_config(self) -> dict:
+        try:
+            return json.loads(self.config or "{}")
+        except (ValueError, TypeError):
+            return {}
 
     def to_dict(self) -> dict:
+        cfg = self.get_config()
         return {
             "id": self.id,
             "tag": self.tag,
@@ -414,6 +445,45 @@ class ExternalOutbound(db.Model):
             "address": self.address,
             "port": self.port,
             "username": self.username,
+            "enabled": self.enabled,
+            "name": self.name,
+            "region": self.region or "intl",
+            # Только несекретное описание ключа — для подписи в списке.
+            "security": cfg.get("security"),
+            "network": cfg.get("network"),
+            "sni": cfg.get("sni"),
+        }
+
+
+# ---------------------------------------------------------------------------
+# Группы выходов (балансировщик с автопереключением)
+# ---------------------------------------------------------------------------
+
+class OutboundGroup(db.Model):
+    """Несколько выходов под одним именем. Xray сам проверяет их каждую
+    минуту и ведёт трафик через самый быстрый живой (leastPing +
+    observatory); если все мертвы — через первый в списке."""
+    __tablename__ = "outbound_groups"
+
+    id = db.Column(db.Integer, primary_key=True)
+    tag = db.Column(db.String(64), unique=True, nullable=False)
+    name = db.Column(db.String(128), nullable=False)
+    members = db.Column(db.Text, default="[]")                   # JSON: теги ExternalOutbound по порядку
+    enabled = db.Column(db.Boolean, default=True)
+
+    def get_members(self) -> list:
+        try:
+            v = json.loads(self.members or "[]")
+        except (ValueError, TypeError):
+            return []
+        return [t for t in v if isinstance(t, str)]
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "tag": self.tag,
+            "name": self.name,
+            "members": self.get_members(),
             "enabled": self.enabled,
         }
 
