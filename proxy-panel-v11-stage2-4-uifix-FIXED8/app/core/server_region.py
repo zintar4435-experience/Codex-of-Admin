@@ -39,3 +39,23 @@ def current() -> str:
     битая запись в БД не должна переворачивать режим у всех клиентов."""
     value = (Setting.get(SETTING_KEY, DEFAULT) or DEFAULT).strip().lower()
     return value if value in REGIONS else DEFAULT
+
+
+def for_inbound(inbound) -> str:
+    """Где выходит в интернет трафик КОНКРЕТНОГО подключения — эту метку и
+    получают его ссылки.
+
+    Без каскада трафик выходит прямо с этого сервера — значит, там, где стоит
+    сервер (current()). Если у подключения выбран выход через другой сервер
+    (app/core/exits.py), трафик выходит там — метка берётся у выхода. Так на
+    одном сервере в России могут жить и подключения для людей за границей
+    (прямые, метка ru), и подключения для людей в России через зарубежный
+    выход (метка intl) — владельцу ничего не нужно переключать вручную.
+    """
+    if inbound is not None and getattr(inbound, "engine", None) == "xray" \
+            and getattr(inbound, "exit_tag", None):
+        from app.core.exits import resolve_exit
+        resolved = resolve_exit(inbound.exit_tag)
+        if resolved is not None:
+            return resolved.region
+    return current()

@@ -189,6 +189,8 @@ def create_app(config_overrides: dict = None) -> Flask:
     from app.api.split_tunnel import bp as split_bp
     from app.api.system import bp as system_bp
     from app.api.outbounds import bp as outbounds_bp
+    from app.api.exits import bp as exits_bp
+    from app.api.stealth import bp as stealth_bp
     from app.api.security import bp as security_bp
     from app.api.subscription import bp as subscription_bp
     from app.api.backup import bp as backup_bp
@@ -201,6 +203,8 @@ def create_app(config_overrides: dict = None) -> Flask:
     app.register_blueprint(split_bp, url_prefix="/api/split-tunnel")
     app.register_blueprint(system_bp, url_prefix="/api/system")
     app.register_blueprint(outbounds_bp, url_prefix="/api/outbounds")
+    app.register_blueprint(exits_bp, url_prefix="/api/exits")
+    app.register_blueprint(stealth_bp, url_prefix="/api/stealth")
     app.register_blueprint(security_bp, url_prefix="/api/security")
     app.register_blueprint(backup_bp, url_prefix="/api/backup")
     # Subscription URL — публичный (без авторизации), доступ только по токену.
@@ -451,6 +455,28 @@ def _ensure_schema():
                 conn.execute(text(
                     "ALTER TABLE routing_rules ADD COLUMN match_network VARCHAR(8)"
                 ))
+
+    # --- inbounds: выход в интернет (каскад) ---
+    # NULL/0 — трафик выходит прямо с этого сервера, как до обновления.
+    if "inbounds" in inspector.get_table_names():
+        existing = {c["name"] for c in inspector.get_columns("inbounds")}
+        with db.engine.begin() as conn:
+            if "exit_tag" not in existing:
+                conn.execute(text("ALTER TABLE inbounds ADD COLUMN exit_tag VARCHAR(64)"))
+            if "exit_ru_direct" not in existing:
+                conn.execute(text("ALTER TABLE inbounds ADD COLUMN exit_ru_direct BOOLEAN DEFAULT 0"))
+
+    # --- external_outbounds: выходы-серверы по ключу (VLESS/Trojan) ---
+    # Старые SOCKS/HTTP получают NULL/'{}' — генератор их строит как раньше.
+    if "external_outbounds" in inspector.get_table_names():
+        existing = {c["name"] for c in inspector.get_columns("external_outbounds")}
+        with db.engine.begin() as conn:
+            if "name" not in existing:
+                conn.execute(text("ALTER TABLE external_outbounds ADD COLUMN name VARCHAR(128)"))
+            if "config" not in existing:
+                conn.execute(text("ALTER TABLE external_outbounds ADD COLUMN config TEXT DEFAULT '{}'"))
+            if "region" not in existing:
+                conn.execute(text("ALTER TABLE external_outbounds ADD COLUMN region VARCHAR(8)"))
 
     # --- users: поля двухфакторной аутентификации (TOTP) ---
     # Старые БД не имеют этих колонок; добавляем с безопасными значениями

@@ -7,7 +7,7 @@ from app.models import (
     ROUTING_ACTION_DIRECT, ROUTING_ACTION_BLOCK,
     ROUTING_ACTION_INBOUND, ROUTING_ACTION_OUTBOUND,
 )
-from app.core.xray import apply_xray_config
+from app.core.apply_runner import commit_and_start_xray
 from app.core.geo_validator import validate_codes
 from app.core.input_validators import validate_match_ports, validate_regexp_entries
 from app.core.audit import log_action
@@ -72,7 +72,7 @@ def _validate_rule_data(data: dict) -> str | None:
         return (
             f"Неизвестные geo-коды: {', '.join(bad_codes)}. "
             f"Установленная geosite.dat (v2fly/dlc) не содержит таких категорий. "
-            f"Для России в этой базе используйте 'geosite:geolocation-ru' "
+            f"Для России в этой базе используйте 'geosite:category-ru' "
             f"вместо 'geosite:ru'. См. имена файлов в "
             f"https://github.com/v2fly/domain-list-community/tree/master/data"
         )
@@ -152,12 +152,13 @@ def create_rule():
         enabled=data.get("enabled", True),
     )
     db.session.add(rule)
-    db.session.commit()
-    apply_xray_config()
+    apply_id, err = commit_and_start_xray()
+    if err:
+        return jsonify({"error": err}), 400
     log_action("rule.create", target_type="rule",
                target_id=rule.id, target_name=rule.name,
                details={"action": rule.action, "priority": rule.priority})
-    return jsonify(rule.to_dict()), 201
+    return jsonify({**rule.to_dict(), "apply_id": apply_id}), 201
 
 
 @bp.put("/<int:rule_id>")
@@ -201,12 +202,13 @@ def update_rule(rule_id):
     # match_network отдельно — нужна нормализация (пусто → NULL)
     if "match_network" in data:
         rule.match_network = _normalize_network(data["match_network"])
-    db.session.commit()
-    apply_xray_config()
+    apply_id, err = commit_and_start_xray()
+    if err:
+        return jsonify({"error": err}), 400
     log_action("rule.update", target_type="rule",
                target_id=rule.id, target_name=rule.name,
                details={"fields": list(data.keys())})
-    return jsonify(rule.to_dict())
+    return jsonify({**rule.to_dict(), "apply_id": apply_id})
 
 
 @bp.delete("/<int:rule_id>")
@@ -215,9 +217,8 @@ def delete_rule(rule_id):
     rule = RoutingRule.query.get_or_404(rule_id)
     snapshot = {"id": rule.id, "name": rule.name, "action": rule.action}
     db.session.delete(rule)
-    db.session.commit()
-    apply_xray_config()
+    apply_id, _ = commit_and_start_xray(validate=False)
     log_action("rule.delete", target_type="rule",
                target_id=snapshot["id"], target_name=snapshot["name"],
                details={"action": snapshot["action"]})
-    return jsonify({"ok": True})
+    return jsonify({"ok": True, "apply_id": apply_id})

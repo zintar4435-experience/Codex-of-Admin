@@ -86,6 +86,18 @@ def routing():
     return render_template("pages/routing.html")
 
 
+@bp.get("/cascade")
+@login_required
+def cascade():
+    return render_template("pages/cascade.html")
+
+
+@bp.get("/stealth")
+@login_required
+def stealth():
+    return render_template("pages/stealth.html")
+
+
 @bp.get("/security")
 @login_required
 def security():

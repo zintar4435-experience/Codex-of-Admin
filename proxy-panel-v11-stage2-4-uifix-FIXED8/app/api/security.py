@@ -16,7 +16,7 @@ import json
 from flask import Blueprint, jsonify
 from flask_login import login_required
 from app.models import db, RoutingRule, Inbound
-from app.core.xray import apply_xray_config
+from app.core.apply_runner import commit_and_start_xray
 from app.core.audit import log_action
 
 bp = Blueprint("security", __name__)
@@ -207,14 +207,16 @@ def enable_preset(preset_id: str):
         db.session.add(rule)
         created_count += 1
 
+    apply_id = None
     if created_count > 0:
-        db.session.commit()
-        apply_xray_config()
+        apply_id, err = commit_and_start_xray()
+        if err:
+            return jsonify({"error": err}), 400
         log_action("security.preset_enable",
                    target_type="preset", target_name=preset_id,
                    details={"created_rules": created_count})
 
-    return jsonify(_preset_state(preset_id, preset))
+    return jsonify({**_preset_state(preset_id, preset), "apply_id": apply_id})
 
 
 @bp.post("/presets/<preset_id>/disable")
@@ -235,11 +237,11 @@ def disable_preset(preset_id: str):
         db.session.delete(rule)
         deleted_count += 1
 
+    apply_id = None
     if deleted_count > 0:
-        db.session.commit()
-        apply_xray_config()
+        apply_id, _ = commit_and_start_xray(validate=False)
         log_action("security.preset_disable",
                    target_type="preset", target_name=preset_id,
                    details={"deleted_rules": deleted_count})
 
-    return jsonify(_preset_state(preset_id, preset))
+    return jsonify({**_preset_state(preset_id, preset), "apply_id": apply_id})

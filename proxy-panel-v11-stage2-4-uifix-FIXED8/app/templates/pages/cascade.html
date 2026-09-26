@@ -1,0 +1,474 @@
+{% extends "base.html" %}
+{% block title %}Каскад — Codex of Admin{% endblock %}
+{% block page_title %}Каскад{% endblock %}
+{% block content %}
+
+<style>
+  .cc-steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 8px; }
+  .cc-step { border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; font-size: 12.5px; line-height: 1.55; }
+  .cc-step b { display: block; margin-bottom: 2px; }
+  .cc-note { font-size: 12px; color: var(--text-dim); line-height: 1.6; }
+  .cc-note a { color: var(--accent); }
+  .cc-probe { font-size: 11.5px; white-space: nowrap; }
+  .cc-members { display: flex; flex-direction: column; gap: 6px; max-height: 260px; overflow: auto; }
+  .cc-members label { display: flex; align-items: center; gap: 8px; font-size: 13px; cursor: pointer; }
+  .cc-preview { font-size: 12px; line-height: 1.7; padding: 8px 10px; border-radius: 6px;
+                background: var(--surface2); border: 1px solid var(--border); }
+  .cc-inline { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-dim); cursor: pointer; margin-top: 6px; }
+  .cc-select { min-width: 220px; }
+  textarea.form-control { font-family: var(--font-mono, monospace); font-size: 12px; }
+  @media (max-width: 900px) { .cc-steps { grid-template-columns: 1fr; } }
+</style>
+
+<!-- Что это и как настроить — простыми словами -->
+<div class="card">
+  <div class="card-header">
+    <span class="card-title">Как это работает</span>
+  </div>
+  <div class="cc-note">
+    Пользователь подключается к <b>этому</b> серверу, а в интернет его трафик выходит через <b>другой</b>.
+    Например: этот сервер в России (к нему легко подключиться даже при ограничениях мобильной связи),
+    а выход — за границей (там открываются заблокированные сайты).
+    <span id="cc-server-where"></span>
+  </div>
+  <div class="cc-steps">
+    <div class="cc-step"><b>1. Добавьте выход</b>Вставьте ключ другого сервера (vless://…). Его выдаёт панель того сервера — как обычному клиенту.</div>
+    <div class="cc-step"><b>2. Группа — по желанию</b>Несколько выходов в одной группе: панель сама ведёт трафик через самый быстрый живой и переключается, если один упал.</div>
+    <div class="cc-step"><b>3. Выберите выход у подключения</b>В таблице «Подключения» ниже. Приложение Codex of Connect само узнает, где выходит трафик: ничего переключать вручную не нужно — клиентам достаточно обновить подписку.</div>
+  </div>
+</div>
+
+<!-- 1. Выходы -->
+<div class="card">
+  <div class="card-header">
+    <span class="card-title">Выходы — другие серверы</span>
+    <button class="btn btn-primary btn-sm" onclick="openExitModal()"><i class="bi bi-plus-lg"></i> Добавить выход</button>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Имя</th><th>Адрес</th><th>Трафик выходит</th><th>Проверка</th><th>Кто использует</th><th></th></tr></thead>
+      <tbody id="exits-tbody"></tbody>
+    </table>
+  </div>
+</div>
+
+<!-- 2. Группы -->
+<div class="card">
+  <div class="card-header">
+    <span class="card-title">Группы выходов (автопереключение)</span>
+    <button class="btn btn-outline btn-sm" id="btn-new-group" onclick="openGroupModal()"><i class="bi bi-plus-lg"></i> Создать группу</button>
+  </div>
+  <div class="cc-note" style="margin-bottom:8px">
+    Xray раз в минуту проверяет каждый выход группы и ведёт трафик через самый быстрый из живых.
+    Если недоступны все — через первый в списке.
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Имя</th><th>Выходы</th><th>Кто использует</th><th></th></tr></thead>
+      <tbody id="groups-tbody"></tbody>
+    </table>
+  </div>
+</div>
+
+<!-- 3. Подключения -->
+<div class="card">
+  <div class="card-header">
+    <span class="card-title">Подключения — где выходит их трафик</span>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Подключение</th><th>Выход в интернет</th><th>Приложение увидит</th></tr></thead>
+      <tbody id="inbounds-tbody"></tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Модалка: выход -->
+<div class="modal-backdrop" id="modal-exit">
+  <div class="modal-box" style="width:560px">
+    <div class="modal-title" id="exit-modal-title">Новый выход</div>
+    <div class="form-group">
+      <label class="form-label" id="exit-link-label">Ключ другого сервера</label>
+      <textarea class="form-control" id="x-link" rows="3" placeholder="vless://…"></textarea>
+      <div class="form-text" id="x-link-hint">
+        В панели того сервера: подключение → клиент → «Ключ». Подойдёт VLESS (Reality или «за сайтом»), Trojan или SOCKS5.
+      </div>
+    </div>
+    <div class="cc-preview hidden" id="x-preview"></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px">
+      <div class="form-group">
+        <label class="form-label">Имя</label>
+        <input type="text" class="form-control" id="x-name" maxlength="128" placeholder="Нидерланды">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Где стоит тот сервер</label>
+        <select class="form-control" id="x-region">
+          <option value="intl">Не в России</option>
+          <option value="ru">В России</option>
+        </select>
+      </div>
+    </div>
+    <div class="form-text" id="x-region-hint"></div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal('modal-exit')">Отмена</button>
+      <button class="btn btn-primary" id="x-save" onclick="saveExit()">Сохранить</button>
+    </div>
+  </div>
+</div>
+
+<!-- Модалка: группа -->
+<div class="modal-backdrop" id="modal-group">
+  <div class="modal-box" style="width:480px">
+    <div class="modal-title" id="group-modal-title">Новая группа</div>
+    <div class="form-group">
+      <label class="form-label">Имя группы</label>
+      <input type="text" class="form-control" id="g-name" maxlength="128" placeholder="Европа">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Выходы в группе</label>
+      <div class="cc-members" id="g-members"></div>
+      <div class="form-text">Первый отмеченный — запасной, если проверка не видит ни одного живого.</div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal('modal-group')">Отмена</button>
+      <button class="btn btn-primary" id="g-save" onclick="saveGroup()">Сохранить</button>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+{% block scripts %}
+<script>
+let state = {server_region: 'intl', exits: [], groups: [], inbounds: []};
+let editExitId = null, editGroupId = null;
+const probeResults = {};   // id выхода → результат последней проверки
+
+const REGION_TEXT = {ru: 'в России', intl: 'за границей'};
+
+function exitLabel(tag) {
+  const e = state.exits.find(x => x.tag === tag);
+  if (e) return e.name || e.tag;
+  const g = state.groups.find(x => x.tag === tag);
+  if (g) return 'Группа «' + g.name + '»';
+  return tag;
+}
+
+async function load() {
+  try {
+    state = await api('GET', '/api/exits/');
+  } catch (e) {
+    toast('Не удалось загрузить: ' + e.message, 'error');
+    return;
+  }
+  render();
+}
+
+function render() {
+  const where = document.getElementById('cc-server-where');
+  where.innerHTML = 'Этот сервер стоит <b>' + (state.server_region === 'ru' ? 'в России' : 'не в России')
+    + '</b> (меняется на странице <a href="/server">«Сервер»</a>).';
+  renderExits();
+  renderGroups();
+  renderInbounds();
+}
+
+function usedText(list) {
+  return list && list.length
+    ? escapeHtml(list.join(', '))
+    : '<span class="text-dim">—</span>';
+}
+
+function renderExits() {
+  const tb = document.getElementById('exits-tbody');
+  if (!state.exits.length) {
+    tb.innerHTML = '<tr><td colspan="6" class="text-dim" style="text-align:center;padding:18px">'
+      + 'Выходов пока нет. Нажмите «Добавить выход» и вставьте ключ другого сервера.</td></tr>';
+    return;
+  }
+  tb.innerHTML = state.exits.map(e => {
+    const kind = e.protocol === 'vless' || e.protocol === 'trojan'
+      ? escapeHtml(e.protocol.toUpperCase()) + (e.security && e.security !== 'none' ? ' · ' + escapeHtml(e.security) : '')
+      : escapeHtml(e.protocol.toUpperCase());
+    const status = !e.enabled
+      ? '<span class="badge badge-warn">выключен</span>'
+      : (!e.usable ? '<span class="badge badge-danger">ключ повреждён</span>' : '');
+    const p = probeResults[e.id];
+    let probe = '';
+    if (p === 'busy') probe = '<span class="text-dim">проверяю…</span>';
+    else if (p && p.ok) probe = '<span class="badge badge-active">работает</span> '
+      + '<span class="text-dim">' + p.ms + ' мс' + (p.country ? ' · ' + escapeHtml(p.country) : '') + '</span>';
+    else if (p) probe = '<span class="badge badge-danger" title="' + escapeHtml(p.error || '') + '">не работает</span>';
+    return `<tr>
+      <td><b>${escapeHtml(e.name || e.tag)}</b> ${status}<div class="text-dim" style="font-size:11px">${kind}</div></td>
+      <td><code>${escapeHtml(e.address)}:${e.port}</code></td>
+      <td>${REGION_TEXT[e.region] || e.region}</td>
+      <td class="cc-probe">
+        <button class="btn btn-outline btn-sm" onclick="testExit(${e.id})" ${p === 'busy' ? 'disabled' : ''}>Проверить</button>
+        <div class="mt-1">${probe}</div>
+        ${p && !p.ok && p !== 'busy' && p.error ? '<div class="text-dim" style="font-size:11px;white-space:normal;max-width:260px">' + escapeHtml(p.error) + '</div>' : ''}
+      </td>
+      <td style="font-size:12px">${usedText(e.used_by)}</td>
+      <td style="white-space:nowrap">
+        <button class="btn btn-outline btn-sm btn-icon" title="Изменить" onclick="openExitModal(${e.id})"><i class="bi bi-pencil"></i></button>
+        <button class="btn btn-outline btn-sm" onclick="toggleExit(${e.id})">${e.enabled ? 'Выключить' : 'Включить'}</button>
+        <button class="btn btn-danger btn-sm btn-icon" title="Удалить" onclick="deleteExit(${e.id})"><i class="bi bi-trash"></i></button>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+function renderGroups() {
+  const tb = document.getElementById('groups-tbody');
+  document.getElementById('btn-new-group').disabled = state.exits.length < 1;
+  if (!state.groups.length) {
+    tb.innerHTML = '<tr><td colspan="4" class="text-dim" style="text-align:center;padding:18px">'
+      + 'Групп нет. Нужны, когда выходов два и больше — для автопереключения.</td></tr>';
+    return;
+  }
+  tb.innerHTML = state.groups.map(g => {
+    const names = g.members.map(t => escapeHtml(exitLabel(t))).join(', ');
+    const status = !g.enabled ? ' <span class="badge badge-warn">выключена</span>'
+      : (!g.usable ? ' <span class="badge badge-danger">нет рабочих выходов</span>' : '');
+    return `<tr>
+      <td><b>${escapeHtml(g.name)}</b>${status}</td>
+      <td style="font-size:12px">${names}</td>
+      <td style="font-size:12px">${usedText(g.used_by)}</td>
+      <td style="white-space:nowrap">
+        <button class="btn btn-outline btn-sm btn-icon" title="Изменить" onclick="openGroupModal(${g.id})"><i class="bi bi-pencil"></i></button>
+        <button class="btn btn-danger btn-sm btn-icon" title="Удалить" onclick="deleteGroup(${g.id})"><i class="bi bi-trash"></i></button>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+function exitOptions(current) {
+  let html = '<option value="">Прямо с этого сервера</option>';
+  if (state.exits.length) {
+    html += '<optgroup label="Выходы">' + state.exits.map(e =>
+      `<option value="${escapeHtml(e.tag)}" ${e.tag === current ? 'selected' : ''}>${escapeHtml(e.name || e.tag)}${e.enabled ? '' : ' (выключен)'}</option>`
+    ).join('') + '</optgroup>';
+  }
+  if (state.groups.length) {
+    html += '<optgroup label="Группы">' + state.groups.map(g =>
+      `<option value="${escapeHtml(g.tag)}" ${g.tag === current ? 'selected' : ''}>Группа «${escapeHtml(g.name)}»</option>`
+    ).join('') + '</optgroup>';
+  }
+  return html;
+}
+
+function renderInbounds() {
+  const tb = document.getElementById('inbounds-tbody');
+  if (!state.inbounds.length) {
+    tb.innerHTML = '<tr><td colspan="3" class="text-dim" style="text-align:center;padding:18px">'
+      + 'Подключений нет — создайте их на странице <a href="/inbounds">Inbounds</a>.</td></tr>';
+    return;
+  }
+  tb.innerHTML = state.inbounds.map(ib => {
+    const title = `<b>${escapeHtml(ib.tag)}</b><div class="text-dim" style="font-size:11px">${escapeHtml(ib.protocol)}${ib.port ? ' · порт ' + ib.port : ''}${ib.enabled ? '' : ' · выключено'}</div>`;
+    let exitCell;
+    if (!ib.can_exit) {
+      exitCell = '<span class="text-dim" style="font-size:12px">Прямо с этого сервера (у NaiveProxy и SSH каскада нет)</span>';
+    } else {
+      exitCell = `<select class="form-control cc-select" onchange="setInboundExit(${ib.id}, this.value)">${exitOptions(ib.exit_tag)}</select>`;
+      if (ib.exit_tag) {
+        exitCell += `<label class="cc-inline"><input type="checkbox" ${ib.exit_ru_direct ? 'checked' : ''}
+            onchange="setInboundRuDirect(${ib.id}, this.checked)"> Российские сайты — прямо с этого сервера</label>`;
+      }
+      if (ib.exit_broken) {
+        exitCell += '<div class="text-warn" style="font-size:11.5px;margin-top:4px">Выход выключен или не работает — трафик сейчас идёт прямо с этого сервера.</div>';
+      }
+    }
+    const region = `<span class="badge ${ib.region === 'ru' ? 'badge-warn' : 'badge-info'}">выход ${REGION_TEXT[ib.region] || ib.region}</span>`;
+    return `<tr><td>${title}</td><td>${exitCell}</td><td>${region}</td></tr>`;
+  }).join('');
+}
+
+// ── Выходы ──
+
+let parseTimer = null;
+function onLinkInput() {
+  clearTimeout(parseTimer);
+  const link = document.getElementById('x-link').value.trim();
+  const box = document.getElementById('x-preview');
+  if (!link) { box.classList.add('hidden'); return; }
+  parseTimer = setTimeout(async () => {
+    try {
+      const p = await api('POST', '/api/exits/parse', {link});
+      box.innerHTML = `Сервер: <code>${escapeHtml(p.address)}:${p.port}</code> · ${escapeHtml(p.protocol.toUpperCase())}`
+        + (p.security && p.security !== 'none' ? ' · ' + escapeHtml(p.security) : '')
+        + (p.network ? ' · ' + escapeHtml(p.network) : '')
+        + (p.sni ? '<br>Маскировка (SNI): <code>' + escapeHtml(p.sni) + '</code>' : '');
+      box.classList.remove('hidden');
+      const nameEl = document.getElementById('x-name');
+      if (!nameEl.value && p.name) nameEl.value = p.name;
+      const hint = document.getElementById('x-region-hint');
+      if (p.region) {
+        document.getElementById('x-region').value = p.region;
+        hint.textContent = 'Ключ из нашей панели — расположение взято из него.';
+      } else {
+        hint.textContent = '';
+      }
+    } catch (e) {
+      box.innerHTML = '<span class="text-danger">' + escapeHtml(e.message) + '</span>';
+      box.classList.remove('hidden');
+    }
+  }, 350);
+}
+document.getElementById('x-link').addEventListener('input', onLinkInput);
+
+function openExitModal(id) {
+  editExitId = id || null;
+  const e = id ? state.exits.find(x => x.id === id) : null;
+  document.getElementById('exit-modal-title').textContent = e ? 'Изменить выход' : 'Новый выход';
+  document.getElementById('exit-link-label').textContent = e ? 'Новый ключ (если сменился — иначе оставьте пустым)' : 'Ключ другого сервера';
+  document.getElementById('x-link').value = '';
+  document.getElementById('x-name').value = e ? (e.name || '') : '';
+  document.getElementById('x-region').value = e ? e.region : 'intl';
+  document.getElementById('x-region-hint').textContent = '';
+  document.getElementById('x-preview').classList.add('hidden');
+  openModal('modal-exit');
+  setTimeout(() => document.getElementById(e ? 'x-name' : 'x-link').focus(), 50);
+}
+
+async function saveExit() {
+  const btn = document.getElementById('x-save');
+  const body = {
+    name: document.getElementById('x-name').value.trim(),
+    region: document.getElementById('x-region').value,
+  };
+  const link = document.getElementById('x-link').value.trim();
+  if (link) body.link = link;
+  if (!editExitId && !link) { toast('Вставьте ключ сервера', 'error'); return; }
+  btn.disabled = true;
+  try {
+    const r = editExitId
+      ? await api('PUT', `/api/exits/${editExitId}`, body)
+      : await api('POST', '/api/exits/', body);
+    closeModal('modal-exit');
+    toast(editExitId ? 'Выход сохранён' : 'Выход добавлен — нажмите «Проверить»');
+    await load();
+    pollApplyStatus(r.apply_id);
+  } catch (e) {
+    toast(e.message, 'error');
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function toggleExit(id) {
+  const e = state.exits.find(x => x.id === id);
+  try {
+    const r = await api('PUT', `/api/exits/${id}`, {enabled: !e.enabled});
+    await load();
+    pollApplyStatus(r.apply_id);
+  } catch (err) { toast(err.message, 'error'); }
+}
+
+async function deleteExit(id) {
+  const e = state.exits.find(x => x.id === id);
+  if (!confirm(`Удалить выход «${e.name || e.tag}»?`)) return;
+  try {
+    const r = await api('DELETE', `/api/exits/${id}`);
+    delete probeResults[id];
+    toast('Удалено');
+    await load();
+    pollApplyStatus(r.apply_id);
+  } catch (err) { toast(err.message, 'error'); }
+}
+
+async function testExit(id) {
+  probeResults[id] = 'busy';
+  renderExits();
+  try {
+    probeResults[id] = await api('POST', `/api/exits/${id}/test`);
+  } catch (e) {
+    probeResults[id] = {ok: false, error: e.message};
+  }
+  renderExits();
+}
+
+// ── Группы ──
+
+function openGroupModal(id) {
+  editGroupId = id || null;
+  const g = id ? state.groups.find(x => x.id === id) : null;
+  document.getElementById('group-modal-title').textContent = g ? 'Изменить группу' : 'Новая группа';
+  document.getElementById('g-name').value = g ? g.name : '';
+  const selected = g ? g.members : [];
+  // Порядок: сначала отмеченные в их порядке (первый — запасной), потом остальные.
+  const ordered = [
+    ...selected.map(t => state.exits.find(e => e.tag === t)).filter(Boolean),
+    ...state.exits.filter(e => !selected.includes(e.tag)),
+  ];
+  document.getElementById('g-members').innerHTML = ordered.map(e =>
+    `<label><input type="checkbox" value="${escapeHtml(e.tag)}" ${selected.includes(e.tag) ? 'checked' : ''}>
+       ${escapeHtml(e.name || e.tag)} <span class="text-dim" style="font-size:11px">${REGION_TEXT[e.region] || ''}</span></label>`
+  ).join('');
+  openModal('modal-group');
+}
+
+async function saveGroup() {
+  const btn = document.getElementById('g-save');
+  const members = [...document.querySelectorAll('#g-members input:checked')].map(i => i.value);
+  const body = {name: document.getElementById('g-name').value.trim(), members};
+  btn.disabled = true;
+  try {
+    const r = editGroupId
+      ? await api('PUT', `/api/exits/groups/${editGroupId}`, body)
+      : await api('POST', '/api/exits/groups', body);
+    closeModal('modal-group');
+    toast('Группа сохранена');
+    await load();
+    pollApplyStatus(r.apply_id);
+  } catch (e) {
+    toast(e.message, 'error');
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function deleteGroup(id) {
+  const g = state.groups.find(x => x.id === id);
+  if (!confirm(`Удалить группу «${g.name}»?`)) return;
+  try {
+    const r = await api('DELETE', `/api/exits/groups/${id}`);
+    toast('Удалено');
+    await load();
+    pollApplyStatus(r.apply_id);
+  } catch (err) { toast(err.message, 'error'); }
+}
+
+// ── Подключения ──
+
+async function setInboundExit(id, tag) {
+  const ib = state.inbounds.find(x => x.id === id);
+  const body = {exit_tag: tag || null};
+  // Сервер в России, выход за границей — российские сайты по умолчанию
+  // выпускаем прямо отсюда (быстрее, и сайты видят российский адрес).
+  if (tag && !ib.exit_tag) body.exit_ru_direct = state.server_region === 'ru';
+  await saveInbound(id, body);
+}
+
+async function setInboundRuDirect(id, on) {
+  await saveInbound(id, {exit_ru_direct: on});
+}
+
+async function saveInbound(id, body) {
+  try {
+    const r = await api('PUT', `/api/exits/inbound/${id}`, body);
+    const i = state.inbounds.findIndex(x => x.id === id);
+    if (i >= 0) state.inbounds[i] = r;
+    renderInbounds();
+    toast('Сохранено. Клиентам этого подключения нужно обновить подписку.');
+    // Счётчики «кто использует» у выходов/групп — подтягиваем в фоне.
+    load();
+    pollApplyStatus(r.apply_id);
+  } catch (e) {
+    toast(e.message, 'error');
+    renderInbounds();   // вернуть select к сохранённому значению
+  }
+}
+
+load();
+</script>
+{% endblock %}

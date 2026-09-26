@@ -268,6 +268,229 @@ jobs:
           print("Region marker OK")
           PY
 
+      - name: Каскад — выходы по ключу, группы, метка у каждого подключения
+        # Регресс-замок каскада (страница «Каскад», app/core/exits.py):
+        # ключи vless/trojan/socks разбираются в выходы; конфиг с выходом и
+        # группой (балансировщик + observatory) принимает НАСТОЯЩИЙ Xray той
+        # же версии, что ставит install.sh; метка coc_region у подключения —
+        # расположение ВЫХОДА, а выключенный выход возвращает подключение
+        # «прямо с сервера» и в конфиге, и в метке одновременно.
+        env:
+          SECRET_KEY: ci-cascade
+          # Своя база: предыдущие шаги оставляют в общей instance/panel.db
+          # тестовые инбаунды (Reality без dest), которые Xray не примет.
+          DATABASE_URL: sqlite:////tmp/ci-cascade.db
+        run: |
+          XV=$(grep -m1 '^XRAY_VERSION=' install.sh | cut -d'"' -f2)
+          mkdir -p /tmp/xray-ci && cd /tmp/xray-ci
+          curl -fsSL -o xray.zip "https://github.com/XTLS/Xray-core/releases/download/v${XV}/Xray-linux-64.zip"
+          unzip -qo xray.zip xray
+          curl -fsSL -o geosite.dat https://github.com/v2fly/domain-list-community/releases/latest/download/dlc.dat
+          curl -fsSL -o geoip.dat https://github.com/v2fly/geoip/releases/latest/download/geoip.dat
+          cd - >/dev/null
+          XRAY_LOCATION_ASSET=/tmp/xray-ci python - <<'PY'
+          import os, json, urllib.parse
+          os.environ["SECRET_KEY"] = "ci-cascade"
+          import app.core.xray as X, app.core.geo_validator as G
+          X.XRAY_BINARY = G.XRAY_BINARY = "/tmp/xray-ci/xray"
+          from app import create_app
+          from app.models import db, Inbound, Client, Setting, ExternalOutbound, OutboundGroup
+          from app.core import exits as E, server_region
+          from app.api.clients import generate_link
+          app = create_app()
+
+          def region_of(link):
+              u = urllib.parse.urlparse(link)
+              return urllib.parse.parse_qs(u.query).get("coc_region", [None])[0]
+
+          with app.app_context():
+              db.create_all()
+              Setting.set("server_region", "ru"); db.session.commit()
+              tc = json.dumps({"reality_public_key": "pub",
+                               "reality_private_key": "4C6Ztn7qRYkQTmYGd0Ne4cLc-Bw2FrZbkPHF3vlx-nI",
+                               "reality_server_names": ["www.cloudflare.com"],
+                               "reality_dest": "www.cloudflare.com:443", "reality_short_ids": ["ab"]})
+              ib = Inbound(tag="entry", engine="xray", protocol="vless", port=8443, transport="tcp",
+                           transport_config=tc, extra_config="{}", enabled=True)
+              db.session.add(ib); db.session.commit()
+              cl = Client(name="c", inbound_id=ib.id, uuid="11111111-2222-3333-4444-555555555555",
+                          email="c@x", flow="xtls-rprx-vision")
+              db.session.add(cl); db.session.commit()
+
+              pbk = "Zx9vQ3k2eB8mRkq1bB0nGvC2Qf4kVZ0t3rj2cQkQbV4"
+              uid = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+              keys = [
+                  f"vless://{uid}@nl.example.net:443?type=tcp&security=reality&pbk={pbk}&sid=ab&sni=www.microsoft.com&flow=xtls-rprx-vision&coc_region=intl#NL",
+                  f"vless://{uid}@de.example.net:443?type=ws&security=tls&sni=de.example.net&path=%2Fa&host=de.example.net#DE",
+                  f"vless://{uid}@fi.example.net:443?type=xhttp&security=reality&pbk={pbk}&sni=www.apple.com&path=%2Fx&mode=auto#FI",
+                  f"vless://{uid}@gr.example.net:443?type=grpc&security=tls&sni=gr.example.net&serviceName=s&mode=multi#GR",
+                  "trojan://pw@tr.example.net:443?security=tls&sni=tr.example.net#TR",
+                  "socks5://dXNlcjpwYXNz@1.2.3.4:1080#S",
+              ]
+              exts = []
+              for k in keys:
+                  p = E.parse_link(k)
+                  ext = ExternalOutbound(tag=E.new_tag(E.EXIT_TAG_PREFIX), name=p["name"],
+                                         region=p["region"] or "intl", enabled=True,
+                                         protocol=p["protocol"], address=p["address"], port=p["port"],
+                                         username=p["username"], password=p["password"],
+                                         config=json.dumps(p["config"]))
+                  db.session.add(ext); db.session.commit(); exts.append(ext)
+              assert exts[0].region == "intl" and exts[5].username == "user" and exts[5].password == "pass"
+
+              # 1. Каждый вид выхода принимает настоящий Xray.
+              for ext in exts:
+                  ib.exit_tag = ext.tag; db.session.commit()
+                  ok, msg = G.validate_config(X.generate_xray_config())
+                  assert ok, (ext.name, msg)
+
+              # 2. Группа: балансировщик + observatory; RU напрямую — до выхода.
+              grp = OutboundGroup(tag=E.new_tag(E.GROUP_TAG_PREFIX), name="EU",
+                                  members=json.dumps([e.tag for e in exts[:3]]), enabled=True)
+              db.session.add(grp); db.session.commit()
+              ib.exit_tag = grp.tag; ib.exit_ru_direct = True; db.session.commit()
+              cfg = X.generate_xray_config()
+              ok, msg = G.validate_config(cfg)
+              assert ok, msg
+              bal = cfg["routing"]["balancers"]
+              assert bal[0]["tag"] == grp.tag and bal[0]["strategy"]["type"] == "leastPing", bal
+              assert bal[0]["fallbackTag"] == exts[0].tag, bal
+              assert set(cfg["observatory"]["subjectSelector"]) == {e.tag for e in exts[:3]}
+              tail = cfg["routing"]["rules"][-3:]
+              assert tail[0]["outboundTag"] == "direct" and "domain:ru" in tail[0]["domain"], tail
+              assert tail[1]["outboundTag"] == "direct" and tail[1]["ip"] == ["geoip:ru"], tail
+              assert tail[2] == {"type": "field", "inboundTag": ["entry"], "balancerTag": grp.tag}, tail
+
+              # 3. Метка: сервер в России, выход за границей → intl.
+              assert region_of(generate_link(cl, ib)) == "intl"
+              # 4. Выход выключен → группа без первого; все выключены → напрямую
+              #    и в конфиге, и в метке (они не могут разойтись).
+              for e in exts[:3]:
+                  e.enabled = False
+              db.session.commit()
+              cfg = X.generate_xray_config()
+              assert "balancers" not in cfg["routing"] and "observatory" not in cfg, cfg["routing"]
+              assert all(r.get("inboundTag") != ["entry"] for r in cfg["routing"]["rules"])
+              assert region_of(generate_link(cl, ib)) == "ru"
+              # 5. Без выхода — ровно как до каскада.
+              ib.exit_tag = None; db.session.commit()
+              assert region_of(generate_link(cl, ib)) == "ru"
+
+              # 6. Понятные отказы на неподходящие ключи.
+              for bad in ("", "vmess://x", "naive+https://u:p@h:443", "https://p/sub/x",
+                          f"vless://{uid}@h:443?security=reality&sni=x",
+                          f"vless://{uid}@h:443?type=h2"):
+                  try:
+                      E.parse_link(bad)
+                  except E.LinkError:
+                      continue
+                  raise AssertionError(f"ключ должен быть отклонён: {bad}")
+              # 7. Селектор балансировщика — по префиксу: конфликт ловится.
+              assert E.prefix_conflicts(["out-1"], ["out-1", "out-10"]) == ["out-1 → out-10"]
+          print("Cascade OK")
+          PY
+
+      - name: Сохранения не ждут перезапуска Xray
+        # Регресс-замок отзывчивости: правила, внешние прокси, пресеты
+        # безопасности и сплит-туннель раньше перезапускали Xray прямо в
+        # запросе (1–3 с на клик) и молча теряли ошибку применения. Теперь:
+        # битое отклоняется ДО сохранения (xray run -test), остальное —
+        # сразу ответ с apply_id и применение в фоне; сплит-туннель больше
+        # не дёргает Caddy (в «общем 443» это рвало соединение с панелью).
+        # Использует Xray, скачанный шагом «Каскад».
+        env:
+          SECRET_KEY: ci-async
+          DATABASE_URL: sqlite:////tmp/ci-async.db
+        run: |
+          XRAY_LOCATION_ASSET=/tmp/xray-ci python - <<'PY'
+          import app.core.xray as X, app.core.geo_validator as G
+          X.XRAY_BINARY = G.XRAY_BINARY = "/tmp/xray-ci/xray"
+          import app.core.apply_runner as AR
+          started = []
+          AR.start_apply = lambda engine: (started.append(engine), "apply-1")[1]
+          import app.core.caddy as C
+          def no_caddy():
+              raise AssertionError("Caddy не должен перезагружаться")
+          C.apply_caddy_config = no_caddy
+          X.apply_xray_config = lambda: (_ for _ in ()).throw(AssertionError("синхронный apply"))
+          from app import create_app
+          from app.models import db, RoutingRule, SplitTunnelList
+          app = create_app(); app.config["LOGIN_DISABLED"] = True
+          with app.app_context():
+              db.create_all()
+          c = app.test_client()
+          with c.session_transaction() as s:
+              s["_csrf"] = "t"
+          H = {"X-CSRF-Token": "t"}
+          r = c.post("/api/routing/", json={"name": "ok", "action": "direct",
+                                             "match_ips": ["geoip:private"]}, headers=H)
+          assert r.status_code == 201 and r.get_json()["apply_id"] == "apply-1", r.get_json()
+          r = c.post("/api/routing/", json={"name": "bad", "action": "direct",
+                                             "match_ips": ["999.1.1.1/33"]}, headers=H)
+          assert r.status_code == 400 and "xray" in r.get_json()["error"].lower(), r.get_json()
+          with app.app_context():
+              assert [x.name for x in RoutingRule.query.all()] == ["ok"], "битое правило сохранилось"
+          r = c.post("/api/security/presets/block-bittorrent/enable", headers=H)
+          assert r.status_code == 200 and r.get_json()["apply_id"], r.get_json()
+          r = c.post("/api/split-tunnel/", json={"name": "l", "list_type": "domain",
+                                                 "action": "direct", "content": "domain:vk.com"}, headers=H)
+          assert r.status_code == 201 and r.get_json()["apply_id"], r.get_json()
+          r = c.delete("/api/split-tunnel/1", headers=H)
+          assert r.status_code == 200 and r.get_json()["apply_id"], r.get_json()
+          r = c.post("/api/outbounds/", json={"tag": "up", "protocol": "socks",
+                                              "address": "1.2.3.4", "port": 1080}, headers=H)
+          assert r.status_code == 201 and r.get_json()["apply_id"], r.get_json()
+          assert started and set(started) == {"xray"}, started
+          print("Async apply OK")
+          PY
+
+      - name: Заметность — правила подбора сайта для Reality (без сети)
+        # Регресс-замок страницы «Заметность» (app/core/stealth.py): сверка
+        # имени с сертификатом, список заблокированных в России, «соседство»,
+        # поиск соседей укладывается в бюджет времени и честно говорит,
+        # что проверил не всё. Сеть не нужна — TLS-проба подменяется.
+        env:
+          SECRET_KEY: ci-stealth
+        run: |
+          python - <<'PY'
+          import time
+          from app.core import stealth as st
+          m = st._name_matches
+          assert m("*.example.com", "a.example.com") and not m("*.example.com", "a.b.example.com")
+          assert not m("*.example.com", "example.com") and m("www.x.org", "WWW.X.ORG.")
+          assert st.is_ru_blocked("rr1---sn.googlevideo.com") and st.is_ru_blocked("x.com")
+          assert not st.is_ru_blocked("www.apple.com") and not st.is_ru_blocked("max.com")
+          assert st._proximity("5.6.7.8", "5.6.7.200") == "сосед по подсети"
+          assert st._proximity("5.6.7.8", "5.6.9.1") == "рядом (та же /16)"
+          assert st._proximity("5.6.7.8", "9.9.9.9") is None
+          assert st.check_target("not a host")["ok"] is False
+          assert st.scan_neighbors("10.0.0.5").get("error")
+          ok, bad, _ = st._verdict("www.youtube.com", {"ok": True, "tls13": True, "h2": True,
+                                   "name_ok": True, "tcp_ms": 5}, True, None)
+          assert not ok and any("России" in b for b in bad), bad
+          ok, bad, _ = st._verdict("a.example.org", {"ok": True, "tls13": True, "h2": False,
+                                   "name_ok": True, "tcp_ms": 5}, True, None)
+          assert not ok and "нет HTTP/2" in bad, bad
+
+          def fake(ip, port=443, sni=None, timeout=4.0):
+              time.sleep(0.2)
+              last = int(ip.rsplit(".", 1)[1])
+              if last == 77:
+                  name = "site77.example.org"
+                  return {"ok": True, "tls13": True, "h2": True, "names": [name],
+                          "name_ok": (sni == name) if sni else None, "tcp_ms": 3}
+              return {"ok": False, "tls13": False, "h2": False, "names": [], "error": "closed"}
+          st.tls_probe = fake
+          st.resolve_v4 = lambda h: ["93.184.216.77"] if h == "site77.example.org" else []
+          r = st.scan_neighbors("93.184.216.34", budget_s=10, workers=64)
+          assert r["candidates"] and r["candidates"][0]["dest"] == "site77.example.org:443", r
+          assert r["scanned"] == r["total"] and not r["partial"], r
+          t0 = time.monotonic()
+          r = st.scan_neighbors("93.184.216.34", budget_s=3, workers=4)
+          assert time.monotonic() - t0 < 6 and r["partial"] and r["scanned"] < r["total"], r
+          print("Stealth OK")
+          PY
+
       - name: Bash syntax (install/update/bootstrap/diag)
         run: |
           bash -n install.sh

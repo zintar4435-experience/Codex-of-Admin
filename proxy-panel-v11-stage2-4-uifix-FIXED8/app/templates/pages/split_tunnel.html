@@ -200,21 +200,25 @@ async function saveList() {
     content: document.getElementById('l-content').value,
   };
   try {
-    if (editId) { await api('PUT',`/api/split-tunnel/${editId}`,body); toast('Обновлено'); }
-    else { await api('POST','/api/split-tunnel/',body); toast('Список создан'); }
+    const r = editId
+      ? await api('PUT',`/api/split-tunnel/${editId}`,body)
+      : await api('POST','/api/split-tunnel/',body);
+    toast(editId ? 'Обновлено' : 'Список создан');
+    pollApplyStatus(r.apply_id);
     closeModal('modal-list'); resetForm(); load();
   } catch(e) { toast(e.message,'error'); }
 }
 
 async function deleteList(id) {
   if (!confirm('Удалить список?')) return;
-  try { await api('DELETE',`/api/split-tunnel/${id}`); toast('Удалено'); load(); }
+  try { const r = await api('DELETE',`/api/split-tunnel/${id}`); toast('Удалено'); load(); pollApplyStatus(r.apply_id); }
   catch(e) { toast(e.message,'error'); }
 }
 
 async function refreshList(id) {
   try {
-    await api('POST',`/api/split-tunnel/${id}/refresh`);
+    const r = await api('POST',`/api/split-tunnel/${id}/refresh`);
+    pollApplyStatus(r.apply_id);
     toast('Список обновлён');
     load();
   } catch(e) { toast(e.message,'error'); }
@@ -224,7 +228,8 @@ async function addPreset(key) {
   const p = PRESETS[key];
   if (!p) return;
   try {
-    await api('POST','/api/split-tunnel/',p);
+    const r = await api('POST','/api/split-tunnel/',p);
+    pollApplyStatus(r.apply_id);
     toast(`Пресет "${p.name}" добавлен`);
     load();
   } catch(e) { toast(e.message,'error'); }

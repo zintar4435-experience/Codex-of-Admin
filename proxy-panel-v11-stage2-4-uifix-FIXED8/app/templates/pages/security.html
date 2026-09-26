@@ -275,6 +275,8 @@ async function onToggle(checkbox, presetId) {
     const updated = await r.json();
     // Согласовываем чекбокс с фактическим состоянием от сервера
     checkbox.checked = !!updated.enabled;
+    // Xray применяется в фоне — ошибку применения покажет тост.
+    if (updated.apply_id) pollApplyStatus(updated.apply_id);
   } catch (e) {
     // Откатываем чекбокс в его прежнее состояние
     checkbox.checked = !desired;

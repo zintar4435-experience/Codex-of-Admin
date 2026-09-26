@@ -114,8 +114,13 @@
 
     <!-- External outbounds -->
     <div class="card">
+      <div class="text-dim" style="font-size:12px;margin-bottom:8px">
+        Выход через другой сервер по ключу (vless://…), группы с автопереключением и выбор выхода
+        для каждого подключения — на странице <a href="/cascade" style="color:var(--accent)">«Каскад»</a>.
+        Здесь — ручные правила для опытных.
+      </div>
       <div class="card-header">
-        <span class="card-title">Внешние прокси (SOCKS5/HTTP)</span>
+        <span class="card-title">Внешние прокси и выходы</span>
         <button class="btn btn-outline btn-sm" onclick="openOutboundModal()">
           <i class="bi bi-plus-lg"></i> Добавить
         </button>
@@ -145,7 +150,7 @@
         Клик по коду — вставит в нужное поле формы.
       </div>
       <div style="font-size:11px;color:var(--text-dim);line-height:1.8">
-        <div><code class="hint-code" style="color:var(--accent)" onclick="insertHint('domains','geosite:geolocation-ru')">geosite:geolocation-ru</code> — российские домены</div>
+        <div><code class="hint-code" style="color:var(--accent)" onclick="insertHint('domains','geosite:category-ru')">geosite:category-ru</code> — российские домены</div>
         <div><code class="hint-code" style="color:var(--accent)" onclick="insertHint('domains','geosite:category-ads')">geosite:category-ads</code> — реклама</div>
         <div><code class="hint-code" style="color:var(--accent)" onclick="insertHint('ips','geoip:ru')">geoip:ru</code> — российские IP</div>
         <div><code class="hint-code" style="color:var(--accent)" onclick="insertHint('ips','geoip:private')">geoip:private</code> — локальная сеть</div>
@@ -185,7 +190,7 @@
       <div class="form-group">
         <label class="form-label">Домены (через запятую)</label>
         <textarea class="form-control" id="r-domains" rows="3"
-          placeholder="geosite:geolocation-ru, domain:vk.com"></textarea>
+          placeholder="geosite:category-ru, domain:vk.com"></textarea>
       </div>
       <div class="form-group">
         <label class="form-label">IP / CIDR</label>
@@ -584,8 +589,11 @@ async function saveRule() {
     dst_outbound_tag: document.getElementById('r-dst-outbound').value||null,
   };
   try {
-    if (editRuleId) { await api('PUT',`/api/routing/${editRuleId}`,body); toast('Правило обновлено'); }
-    else { await api('POST','/api/routing/',body); toast('Правило создано'); }
+    const r = editRuleId
+      ? await api('PUT',`/api/routing/${editRuleId}`,body)
+      : await api('POST','/api/routing/',body);
+    toast(editRuleId ? 'Правило обновлено' : 'Правило создано');
+    pollApplyStatus(r.apply_id);
     closeModal('modal-rule'); resetRuleForm(); load();
   } catch(e) { toast(e.message,'error'); }
 }
@@ -593,7 +601,7 @@ async function saveRule() {
 async function deleteRule(id) {
   const r = rules.find(x=>x.id===id);
   if (!confirm(`Удалить правило "${r?.name}"?`)) return;
-  try { await api('DELETE',`/api/routing/${id}`); toast('Удалено'); load(); }
+  try { const res = await api('DELETE',`/api/routing/${id}`); toast('Удалено'); load(); pollApplyStatus(res.apply_id); }
   catch(e) { toast(e.message,'error'); }
 }
 
@@ -609,7 +617,8 @@ async function saveOutbound() {
     password: document.getElementById('o-pass').value.trim()||null,
   };
   try {
-    await api('POST','/api/outbounds/',body);
+    const r = await api('POST','/api/outbounds/',body);
+    pollApplyStatus(r.apply_id);
     toast('Прокси добавлен');
     closeModal('modal-outbound');
     load();
@@ -618,7 +627,7 @@ async function saveOutbound() {
 
 async function deleteOutbound(id) {
   if (!confirm('Удалить внешний прокси?')) return;
-  try { await api('DELETE',`/api/outbounds/${id}`); toast('Удалено'); load(); }
+  try { const r = await api('DELETE',`/api/outbounds/${id}`); toast('Удалено'); load(); pollApplyStatus(r.apply_id); }
   catch(e) { toast(e.message,'error'); }
 }
 
