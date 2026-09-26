@@ -190,6 +190,7 @@ def create_app(config_overrides: dict = None) -> Flask:
     from app.api.system import bp as system_bp
     from app.api.outbounds import bp as outbounds_bp
     from app.api.exits import bp as exits_bp
+    from app.api.stealth import bp as stealth_bp
     from app.api.security import bp as security_bp
     from app.api.subscription import bp as subscription_bp
     from app.api.backup import bp as backup_bp
@@ -203,6 +204,7 @@ def create_app(config_overrides: dict = None) -> Flask:
     app.register_blueprint(system_bp, url_prefix="/api/system")
     app.register_blueprint(outbounds_bp, url_prefix="/api/outbounds")
     app.register_blueprint(exits_bp, url_prefix="/api/exits")
+    app.register_blueprint(stealth_bp, url_prefix="/api/stealth")
     app.register_blueprint(security_bp, url_prefix="/api/security")
     app.register_blueprint(backup_bp, url_prefix="/api/backup")
     # Subscription URL — публичный (без авторизации), доступ только по токену.

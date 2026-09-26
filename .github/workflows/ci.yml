@@ -277,6 +277,9 @@ jobs:
         # «прямо с сервера» и в конфиге, и в метке одновременно.
         env:
           SECRET_KEY: ci-cascade
+          # Своя база: предыдущие шаги оставляют в общей instance/panel.db
+          # тестовые инбаунды (Reality без dest), которые Xray не примет.
+          DATABASE_URL: sqlite:////tmp/ci-cascade.db
         run: |
           XV=$(grep -m1 '^XRAY_VERSION=' install.sh | cut -d'"' -f2)
           mkdir -p /tmp/xray-ci && cd /tmp/xray-ci
@@ -385,6 +388,53 @@ jobs:
               # 7. Селектор балансировщика — по префиксу: конфликт ловится.
               assert E.prefix_conflicts(["out-1"], ["out-1", "out-10"]) == ["out-1 → out-10"]
           print("Cascade OK")
+          PY
+
+      - name: Заметность — правила подбора сайта для Reality (без сети)
+        # Регресс-замок страницы «Заметность» (app/core/stealth.py): сверка
+        # имени с сертификатом, список заблокированных в России, «соседство»,
+        # поиск соседей укладывается в бюджет времени и честно говорит,
+        # что проверил не всё. Сеть не нужна — TLS-проба подменяется.
+        env:
+          SECRET_KEY: ci-stealth
+        run: |
+          python - <<'PY'
+          import time
+          from app.core import stealth as st
+          m = st._name_matches
+          assert m("*.example.com", "a.example.com") and not m("*.example.com", "a.b.example.com")
+          assert not m("*.example.com", "example.com") and m("www.x.org", "WWW.X.ORG.")
+          assert st.is_ru_blocked("rr1---sn.googlevideo.com") and st.is_ru_blocked("x.com")
+          assert not st.is_ru_blocked("www.apple.com") and not st.is_ru_blocked("max.com")
+          assert st._proximity("5.6.7.8", "5.6.7.200") == "сосед по подсети"
+          assert st._proximity("5.6.7.8", "5.6.9.1") == "рядом (та же /16)"
+          assert st._proximity("5.6.7.8", "9.9.9.9") is None
+          assert st.check_target("not a host")["ok"] is False
+          assert st.scan_neighbors("10.0.0.5").get("error")
+          ok, bad, _ = st._verdict("www.youtube.com", {"ok": True, "tls13": True, "h2": True,
+                                   "name_ok": True, "tcp_ms": 5}, True, None)
+          assert not ok and any("России" in b for b in bad), bad
+          ok, bad, _ = st._verdict("a.example.org", {"ok": True, "tls13": True, "h2": False,
+                                   "name_ok": True, "tcp_ms": 5}, True, None)
+          assert not ok and "нет HTTP/2" in bad, bad
+
+          def fake(ip, port=443, sni=None, timeout=4.0):
+              time.sleep(0.2)
+              last = int(ip.rsplit(".", 1)[1])
+              if last == 77:
+                  name = "site77.example.org"
+                  return {"ok": True, "tls13": True, "h2": True, "names": [name],
+                          "name_ok": (sni == name) if sni else None, "tcp_ms": 3}
+              return {"ok": False, "tls13": False, "h2": False, "names": [], "error": "closed"}
+          st.tls_probe = fake
+          st.resolve_v4 = lambda h: ["93.184.216.77"] if h == "site77.example.org" else []
+          r = st.scan_neighbors("93.184.216.34", budget_s=10, workers=64)
+          assert r["candidates"] and r["candidates"][0]["dest"] == "site77.example.org:443", r
+          assert r["scanned"] == r["total"] and not r["partial"], r
+          t0 = time.monotonic()
+          r = st.scan_neighbors("93.184.216.34", budget_s=3, workers=4)
+          assert time.monotonic() - t0 < 6 and r["partial"] and r["scanned"] < r["total"], r
+          print("Stealth OK")
           PY
 
       - name: Bash syntax (install/update/bootstrap/diag)

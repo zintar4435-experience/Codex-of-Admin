@@ -982,6 +982,7 @@
     [data-theme^="term"] .nav-link[data-icon="security"]::before  { content: "[#]"; }
     [data-theme^="term"] .nav-link[data-icon="split"]::before     { content: "[/]"; }
     [data-theme^="term"] .nav-link[data-icon="server"]::before    { content: "[~]"; }
+    [data-theme^="term"] .nav-link[data-icon="stealth"]::before   { content: "[?]"; }
     [data-theme^="term"] .nav-link:hover { color: var(--text); background: var(--surface2); }
     [data-theme^="term"] .nav-link.active {
       color: var(--on-ink); background: var(--accent); font-weight: 700;
@@ -1205,6 +1206,9 @@
       <div class="nav-section">Сервер</div>
       <a href="/server" data-icon="server" class="nav-link {% if request.path == '/server' or request.path == '/system' or request.path == '/settings' %}active{% endif %}">
         <i class="bi bi-hdd-rack"></i> Сервер
+      </a>
+      <a href="/stealth" data-icon="stealth" class="nav-link {% if request.path == '/stealth' %}active{% endif %}">
+        <i class="bi bi-incognito"></i> Заметность
       </a>
     </nav>
     <div class="sidebar-footer">
