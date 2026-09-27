@@ -36,6 +36,16 @@
   .mask-opt:has(input:checked) { border-color:var(--accent); background:rgba(64,156,255,0.06); }
   .mask-opt input { margin-top:3px; flex-shrink:0; }
   .mask-opt .form-text { display:block; margin-top:2px; }
+  .site-picker { margin-top:8px; border:1px solid var(--border); border-radius:8px; overflow:hidden; }
+  .site-picker .sp-head { padding:6px 10px; font-size:11px; color:var(--text-dim);
+                          text-transform:uppercase; letter-spacing:.04em; background:rgba(127,127,127,.06); }
+  .site-picker button.sp-row { display:flex; width:100%; gap:10px; align-items:center; padding:8px 10px;
+                               border:0; border-top:1px solid var(--border); background:none; color:inherit;
+                               font:inherit; font-size:13px; text-align:left; cursor:pointer; }
+  .site-picker button.sp-row:hover { background:rgba(64,156,255,0.08); }
+  .site-picker button.sp-row.sel { background:rgba(64,156,255,0.12); }
+  .site-picker .sp-ms { margin-left:auto; color:var(--text-dim); font-size:12px; white-space:nowrap; }
+  .site-picker .sp-note { padding:8px 10px; border-top:1px solid var(--border); font-size:12px; color:var(--text-dim); }
 </style>
 
 <div class="flex justify-between items-center mb-2" style="margin-bottom:20px">
@@ -276,6 +286,7 @@
                    placeholder="www.samsung.com" oninput="onRealitySiteInput()"
                    onchange="setRealitySite(this.value)">
             <button type="button" class="btn btn-outline btn-sm" id="btn-reality-site-check" onclick="checkRealitySite()">Проверить</button>
+            <button type="button" class="btn btn-outline btn-sm" id="btn-reality-site-pick" onclick="pickRealitySites()">Подобрать</button>
           </div>
           <datalist id="reality-site-presets">
             <option value="www.samsung.com">
@@ -285,8 +296,12 @@
             <option value="www.microsoft.com">
           </datalist>
           <div class="form-text" id="reality-site-status" style="margin-top:6px">
-            Менять не обязательно. Другой сайт можно выбрать из списка или вписать свой и нажать «Проверить».
+            Менять не обязательно. «Подобрать» — панель сама найдёт сайты, которые подходят этому серверу.
           </div>
+          <!-- Список, который собирает «Подобрать»: те же проверки, что на
+               странице «Заметность» (/api/stealth/popular и /neighbors), но
+               выбор — одним кликом прямо в форме. -->
+          <div id="reality-site-picker" class="site-picker hidden"></div>
         </div>
 
         <!-- Info-bar для shared-443 режима. Показывается когда port=443.
@@ -534,6 +549,7 @@
 <script>
 let inbounds = [];
 let editId = null;
+let sitePickRun = 0;   // номер запуска «Подобрать»: ответы старого запуска не рисуем
 
 async function load() {
   inbounds = await api('GET', '/api/inbounds/');
@@ -913,6 +929,9 @@ function resetForm() {
     if (el) el.value = '';
   });
   setRealitySiteStatus('');
+  sitePickRun++;
+  document.getElementById('reality-site-picker').classList.add('hidden');
+  document.getElementById('btn-reality-site-pick').disabled = false;
   document.getElementById('f-engine').value = 'xray';
   document.getElementById('f-protocol').value = 'vless';
   document.getElementById('f-transport').value = 'tcp';
@@ -1171,7 +1190,82 @@ function setRealitySiteStatus(html, color) {
   const el = document.getElementById('reality-site-status');
   if (!el) return;
   el.style.color = color || '';
-  el.innerHTML = html || 'Менять не обязательно. Другой сайт можно выбрать из списка или вписать свой и нажать «Проверить».';
+  el.innerHTML = html || 'Менять не обязательно. «Подобрать» — панель сама найдёт сайты, которые подходят этому серверу.';
+}
+
+// «Подобрать»: панель с сервера проверяет крупные сайты и соседей по подсети
+// и показывает подходящие списком — клик вписывает сайт. Крупные сверху:
+// у части российских провайдеров малоизвестные домены «замерзают» (полевой
+// случай 26.09), а соседи — как раз малоизвестные. Оба запроса идут
+// параллельно; крупные показываем сразу, соседей дописываем, когда найдутся
+// (поиск соседей — до ~20 с).
+
+function pickRealitySites() {
+  const run = ++sitePickRun;
+  const box = document.getElementById('reality-site-picker');
+  const btn = document.getElementById('btn-reality-site-pick');
+  const state = { popular: null, neighbors: null, popularErr: '', neighborsErr: '' };
+  btn.disabled = true;
+  box.classList.remove('hidden');
+  box.innerHTML = '<div class="sp-note">Проверяю сайты с этого сервера — до 20 секунд…</div>';
+  setRealitySiteStatus('');
+  const render = () => { if (run === sitePickRun) renderSitePicker(state); };
+  const popular = api('POST', '/api/stealth/popular')
+    .then(r => { state.popular = (r.results || []).filter(x => x.ok); })
+    .catch(e => { state.popularErr = e.message; })
+    .finally(render);
+  const neighbors = api('POST', '/api/stealth/neighbors')
+    .then(r => {
+      if (r.error) { state.neighborsErr = r.error; return; }
+      state.neighbors = r.candidates || [];
+    })
+    .catch(e => { state.neighborsErr = e.message; })
+    .finally(render);
+  Promise.allSettled([popular, neighbors]).finally(() => {
+    if (run === sitePickRun) btn.disabled = false;
+  });
+}
+
+function renderSitePicker(st) {
+  const box = document.getElementById('reality-site-picker');
+  const cur = normalizeSiteHost(document.getElementById('f-reality-site').value);
+  const row = (host, dest, ms) =>
+    `<button type="button" class="sp-row${host === cur ? ' sel' : ''}" data-host="${escapeHtml(host)}"
+       data-dest="${escapeHtml(dest)}" onclick="chooseRealitySite(this)">
+       <span>${escapeHtml(host)}</span>
+       <span class="sp-ms">${ms != null ? ms + ' мс' : ''}</span></button>`;
+  let html = '<div class="sp-head">Крупные известные сайты — рекомендуем</div>';
+  if (st.popular === null && !st.popularErr) {
+    html += '<div class="sp-note">Проверяю…</div>';
+  } else if (st.popularErr) {
+    html += `<div class="sp-note">Не удалось проверить: ${escapeHtml(st.popularErr)}</div>`;
+  } else if (!st.popular.length) {
+    html += '<div class="sp-note">Ни один не подошёл с этого сервера.</div>';
+  } else {
+    html += st.popular.map(r => row(r.host, r.dest || `${r.host}:443`, r.ms)).join('');
+  }
+  html += '<div class="sp-head">Соседи по подсети — для опытных</div>';
+  if (st.neighbors === null && !st.neighborsErr) {
+    html += '<div class="sp-note">Ищу рядом с сервером…</div>';
+  } else if (st.neighborsErr) {
+    html += `<div class="sp-note">${escapeHtml(st.neighborsErr)}</div>`;
+  } else if (!st.neighbors.length) {
+    html += '<div class="sp-note">Подходящих соседей нет.</div>';
+  } else {
+    html += st.neighbors.map(c => row(c.host, c.dest || `${c.host}:443`, c.ms)).join('');
+  }
+  box.innerHTML = html;
+}
+
+// Клик по сайту из списка. dest берём из проверки: у соседа, чьё имя в DNS
+// ведёт в другое место, это адрес (IP:443), а не имя.
+function chooseRealitySite(btn) {
+  const host = btn.dataset.host;
+  setRealitySite(host);
+  document.getElementById('f-reality-dest').value = btn.dataset.dest || `${host}:443`;
+  document.querySelectorAll('#reality-site-picker .sp-row').forEach(b =>
+    b.classList.toggle('sel', b === btn));
+  setRealitySiteStatus(`✅ Выбран ${escapeHtml(host)}`, 'var(--success, #10b981)');
 }
 
 // Проверка сайта с сервера: TLS 1.3, HTTP/2, X25519, не заблокирован ли.
@@ -1305,6 +1399,9 @@ async function editInbound(id) {
     document.getElementById('f-reality-site').value =
       ib.port === 443 ? '' : ((tc.reality_server_names || [])[0] || '');
     setRealitySiteStatus('');
+    sitePickRun++;
+    document.getElementById('reality-site-picker').classList.add('hidden');
+    document.getElementById('btn-reality-site-pick').disabled = false;
     showRealitySection(true);
   } else {
     showRealitySection(false);
