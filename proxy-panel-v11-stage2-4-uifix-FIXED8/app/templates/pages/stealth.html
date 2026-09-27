@@ -37,11 +37,12 @@
   </div>
   <div class="st-note">
     Reality выдаёт сервер за чужой сайт. Хороший сайт-«донор»: TLS 1.3, HTTP/2 и X25519, действующий
-    сертификат, <b>рядом с сервером</b> и не заблокирован в России. Лучше всего — «сосед»: сайт в той же
-    подсети хостинга. Когда в ключе написано www.microsoft.com, а адрес принадлежит дешёвому VPS,
-    это несовпадение видно без всякой расшифровки.
-    Подходящий сайт вписывается в подключение: <b>Inbounds → подключение → «Advanced: dest / serverNames»</b>
-    (для Reality не на 443; на 443 сервер и так маскируется под ваш собственный сайт).
+    сертификат, не заблокирован в России. <b>Надёжнее всего — крупный известный сайт</b> (например,
+    www.samsung.com): у части российских провайдеров соединения с малоизвестными доменами «замерзают» —
+    текст проходит, картинки и страницы нет. «Сосед» по подсети выглядит естественнее для сканеров,
+    но он тоже малоизвестный — это вариант для опытных.
+    Сайт вписывается в подключение: <b>Inbounds → VLESS + Reality → «Под известный сайт» → поле «Сайт»</b>;
+    там же кнопка <b>«Подобрать»</b> делает этот поиск и вписывает выбранный сайт одним кликом.
   </div>
   <div class="st-row" style="margin-top:12px">
     <input type="text" class="form-control" id="t-host" placeholder="www.example.com" onkeydown="if(event.key==='Enter')checkOne()">
@@ -112,15 +113,15 @@ function renderTargets(rows, emptyText) {
       <td>${r.ms != null ? r.ms + ' мс' : '—'}</td>
       <td>${yn(r.tls13)} · ${yn(r.h2)} · ${yn(r.x25519)}</td>
       <td style="max-width:280px">${verdict}</td>
-      <td>${r.ok && dest ? `<button class="btn btn-outline btn-sm" data-dest="${escapeHtml(dest)}" data-host="${escapeHtml(r.host)}" onclick="copyTarget(this)"><i class="bi bi-clipboard"></i> dest</button>` : ''}</td>
+      <td>${r.ok && dest ? `<button class="btn btn-outline btn-sm" data-dest="${escapeHtml(dest)}" data-host="${escapeHtml(r.host)}" onclick="copyTarget(this)"><i class="bi bi-clipboard"></i> Скопировать</button>` : ''}</td>
     </tr>`;
   }).join('');
 }
 
 function copyTarget(btn) {
-  copyText(btn.dataset.dest);
+  copyText(btn.dataset.host);
   document.getElementById('t-status').textContent =
-    `Decoy (dest): ${btn.dataset.dest} · Server Names: ${btn.dataset.host} — впишите в подключение (Inbounds → «Advanced: dest / serverNames»).`;
+    `Скопировано: ${btn.dataset.host}. Впишите в подключение: Inbounds → VLESS + Reality → «Под известный сайт» → поле «Сайт».`;
 }
 
 function checkOne() {
@@ -138,7 +139,7 @@ function checkPopular() {
     document.getElementById('t-status').textContent = 'Проверяю популярные сайты…';
     const r = await api('POST', '/api/stealth/popular');
     document.getElementById('t-status').textContent =
-      'Популярные сайты — запасной вариант: сосед по подсети выглядит естественнее.';
+      'Крупные сайты — самый надёжный вариант у российских провайдеров.';
     renderTargets(r.results, 'Нет результатов.');
   });
 }

@@ -95,8 +95,8 @@ def _validate_reality_ready(port: int, tcfg: dict) -> str | None:
         names = tcfg.get("reality_server_names") or []
         if not [n for n in names if (n or "").strip()]:
             return (
-                "Reality: не задан serverNames (домен-прикрытие, напр. "
-                "www.cloudflare.com). Заполните его в разделе Advanced."
+                "Не выбран сайт для маскировки (serverNames). Впишите его в "
+                "поле «Сайт», например www.samsung.com."
             )
     return None
 
