@@ -78,12 +78,25 @@ def forward_ports() -> list[int]:
 
 
 def target_ip() -> str:
-    """IPv4 этого (основного) сервера — куда пересылать."""
+    """Публичный IPv4 этого (основного) сервера — куда пересылать. Пусто —
+    надёжного адреса нет (тогда агенту отвечаем 503, и он ничего не
+    трогает: см. api/relays.py).
+
+    Порядок: настройка server_ip → кэш определения (10 минут, общий с
+    /api/system/server-ip и «Маскировкой») → свежее определение. Только
+    публичный адрес: за NAT запасной способ определения отдаёт частный
+    10.x — переслать туда значило бы сломать все промежуточные серверы."""
+    import time
     ip = (Setting.get("server_ip", "") or "").strip()
-    if not _is_ipv4(ip):
-        from app.api.system import _get_server_ip
-        ip = (_get_server_ip() or "").strip()
-    return ip if _is_ipv4(ip) else ""
+    if is_valid_host(ip):
+        return ip
+    from app.api import system as sysapi
+    cache = sysapi._server_ip_cache
+    if not is_valid_host(cache["ip"]) or time.time() - cache["ts"] > 600:
+        detected = (sysapi._get_server_ip() or "").strip()
+        if is_valid_host(detected):
+            cache["ip"], cache["ts"] = detected, time.time()
+    return cache["ip"] if is_valid_host(cache["ip"]) else ""
 
 
 def _is_ipv4(value: str) -> bool:
@@ -129,7 +142,7 @@ def config_text(relay: Relay) -> str:
     """Ответ агенту промежуточного сервера (простой текст — агенту не нужен
     jq). enabled=0 — пересылку снять."""
     target = target_ip()
-    enabled = relay.enabled and bool(target)
+    enabled = relay.enabled
     lines = [
         f"format={FORMAT_VERSION}",
         f"enabled={1 if enabled else 0}",
@@ -209,18 +222,35 @@ remove_rules() {
 
 body=$(mktemp)
 trap 'rm -f "$body" "$body.nft"' EXIT
-code=$(curl -sS --max-time 20 -o "$body" -w '%{http_code}' \
+# Панель не ответила как надо — правила не трогаем. После перезагрузки
+# (правил в ядре ещё нет) поднимаем последние сохранённые: пересылка
+# работает, даже если панель за границей сейчас недоступна.
+keep_rules() {
+  echo "coc-relay: $1 — правила не меняю"
+  if [ -f "$STATE" ] && ! nft list table ip coc_relay >/dev/null 2>&1; then
+    { echo "table ip coc_relay"; echo "delete table ip coc_relay"; cat "$STATE"; } | nft -f - \
+      && echo "coc-relay: восстановил сохранённую пересылку"
+  fi
+  exit 0
+}
+
+code=$(curl -4 -sS --max-time 20 -o "$body" -w '%{http_code}' \
   "$PANEL_URL/relay-agent/$TOKEN/config?v=__AGENT_VERSION__" || true)
 code=${code:-000}
 
-if [ "$code" = 404 ]; then
-  echo "coc-relay: панель не знает этот сервер (удалён) — снимаю пересылку"
+# Снимаем пересылку только по явной команде панели: 410 (сервер удалён из
+# панели) или enabled=0 в настоящем ответе. 404, 5xx, чужая страница —
+# «панель не та или недоступна», правила остаются.
+if [ "$code" = 410 ]; then
+  echo "coc-relay: сервер удалён из панели — снимаю пересылку"
   remove_rules
   exit 0
 fi
 if [ "$code" != 200 ]; then
-  echo "coc-relay: панель недоступна (HTTP $code) — правила не меняю"
-  exit 0
+  keep_rules "панель недоступна (HTTP $code)"
+fi
+if ! grep -qx 'format=1' "$body"; then
+  keep_rules "ответ панели не похож на настройки"
 fi
 
 val() { sed -n "s/^$1=//p" "$body" | head -n 1 | tr -d '\r'; }
@@ -228,9 +258,12 @@ enabled=$(val enabled)
 target=$(val target)
 ports=$(val ports)
 
-if [ "$enabled" != 1 ] || [ -z "$ports" ]; then
+if [ "$enabled" = 0 ]; then
   remove_rules
   exit 0
+fi
+if [ "$enabled" != 1 ] || [ -z "$ports" ]; then
+  keep_rules "в ответе панели нет портов"
 fi
 if ! [[ "$target" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]; then
   echo "coc-relay: некорректный адрес из панели — правила не меняю" >&2
@@ -240,13 +273,27 @@ if ! [[ "$ports" =~ ^[0-9]{1,5}(,[0-9]{1,5})*$ ]]; then
   echo "coc-relay: некорректные порты из панели — правила не меняю" >&2
   exit 0
 fi
+# Порты, на которых слушает ssh этого сервера, не пересылаем никогда —
+# иначе владелец потерял бы к нему доступ.
+ssh_ports=" 22 "
+if command -v ss >/dev/null 2>&1; then
+  for sp in $(ss -Hltnp 2>/dev/null | awk '/sshd/ {n=split($4,a,":"); print a[n]}'); do
+    ssh_ports="$ssh_ports$sp "
+  done
+fi
+safe=""
 for p in ${ports//,/ }; do
-  if [ "$p" -lt 1 ] || [ "$p" -gt 65535 ] || [ "$p" = 22 ]; then
-    echo "coc-relay: недопустимый порт $p — правила не меняю" >&2
-    exit 0
+  if [ "$p" -lt 1 ] || [ "$p" -gt 65535 ]; then
+    keep_rules "недопустимый порт $p"
   fi
+  case "$ssh_ports" in *" $p "*) echo "coc-relay: порт $p занят ssh этого сервера — не пересылаю"; continue;; esac
+  safe="$safe${safe:+, }$p"
 done
-set_ports=${ports//,/, }
+if [ -z "$safe" ]; then
+  remove_rules
+  exit 0
+fi
+set_ports=$safe
 
 cat > "$body.nft" <<NFT
 table ip coc_relay {
@@ -268,7 +315,7 @@ fi
 
 { echo "table ip coc_relay"; echo "delete table ip coc_relay"; cat "$body.nft"; } | nft -f -
 install -m 600 "$body.nft" "$STATE"
-echo "coc-relay: пересылка на $target, порты $ports"
+echo "coc-relay: пересылка на $target, порты $set_ports"
 SYNC
 chmod 755 /usr/local/bin/coc-relay-sync
 
@@ -309,6 +356,10 @@ if command -v ufw >/dev/null 2>&1 && ufw status 2>/dev/null | grep -q "Status: a
   echo "ВНИМАНИЕ: включён ufw. Он может не пропускать пересылаемый трафик."
   echo "Разрешите его сами (например: ufw default allow routed) — скрипт"
   echo "настройки файрвола не меняет."
+elif command -v iptables >/dev/null 2>&1 && iptables -S FORWARD 2>/dev/null | grep -q "^-P FORWARD DROP"; then
+  echo
+  echo "ВНИМАНИЕ: файрвол запрещает пересылку (FORWARD DROP, например Docker)."
+  echo "Разрешите пересылку сами — скрипт настройки файрвола не меняет."
 fi
 
 echo

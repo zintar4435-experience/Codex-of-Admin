@@ -32,10 +32,11 @@ def _panel_url() -> str:
 
 def _view(r: Relay) -> dict:
     d = r.to_dict()
-    try:
-        d["install_command"] = relays_core.install_command(_panel_url(), r.token)
-    except Exception:
-        d["install_command"] = None
+    # Без домена с HTTPS скрипт установки не отдаётся (install.sh → 400) —
+    # команду тогда не показываем, чтобы её не запускали впустую.
+    has_https = bool((Setting.get("panel_domain", "") or "").strip())
+    d["install_command"] = (
+        relays_core.install_command(_panel_url(), r.token) if has_https else None)
     return d
 
 
@@ -109,11 +110,14 @@ def delete_relay(relay_id: int):
 # ---------------------------------------------------------------------------
 
 def _relay_by_token(token: str) -> Relay:
+    """410 Gone — такого промежуточного сервера в панели нет (удалён): агент
+    по этому коду снимает пересылку. Любой другой сбой агент считает
+    временным и правила не трогает."""
     if not token or not (16 <= len(token) <= 64):
-        abort(404)
+        abort(410)
     r = Relay.query.filter_by(token=token).first()
     if r is None:
-        abort(404)
+        abort(410)
     return r
 
 
@@ -143,5 +147,10 @@ def agent_config(token: str):
     if version:
         r.agent_version = version
     db.session.commit()
+    # Адрес этого сервера не определился надёжно — 503: агент оставит
+    # прежнюю пересылку как есть (а не «выключит» её или не перешлёт в 10.x).
+    if r.enabled and not relays_core.target_ip():
+        return Response("target unknown\n", status=503, mimetype="text/plain",
+                        headers={"Cache-Control": "no-store"})
     return Response(relays_core.config_text(r), mimetype="text/plain",
                     headers={"Cache-Control": "no-store"})
