@@ -26,7 +26,7 @@ from flask import Blueprint, request, jsonify, Response
 from flask_login import login_required
 from sqlalchemy.exc import SQLAlchemyError
 
-from app.models import db, Inbound, Client
+from app.models import db, Inbound, Client, Relay
 from app.core.audit import log_action
 
 bp = Blueprint("backup", __name__)
@@ -101,6 +101,13 @@ def export_all():
         "inbound_count": len(inbounds),
         "client_count": sum(len(ib.clients) for ib in inbounds),
         "inbounds": [_inbound_export(ib) for ib in inbounds],
+        # Промежуточные серверы («У меня блокировки»): без токенов агенты
+        # после восстановления потеряли бы связь с панелью.
+        "relays": [
+            {"name": r.name, "token": r.token, "host": r.host,
+             "enabled": bool(r.enabled)}
+            for r in Relay.query.order_by(Relay.id).all()
+        ],
     }
     log_action("backup.export",
                details={"inbounds": dump["inbound_count"],
@@ -363,6 +370,28 @@ def import_all():
             continue
         except SQLAlchemyError as e:
             errors.append(f"inbound '{tag}': {type(e).__name__}")
+
+    # Промежуточные серверы — по токену: есть такой — пропускаем (skip) или
+    # обновляем (replace), нет — создаём. Мусорные записи молча пропускаем.
+    from app.core import relays as relays_core
+    for rd in data.get("relays") or []:
+        if not isinstance(rd, dict):
+            continue
+        token = rd.get("token")
+        if not isinstance(token, str) or not relays_core._SAFE_TOKEN.match(token):
+            continue
+        host = rd.get("host") if isinstance(rd.get("host"), str) else None
+        if host and not relays_core.is_valid_host(host):
+            host = None
+        name = (rd.get("name") if isinstance(rd.get("name"), str) else "")[:128] \
+            or "Промежуточный сервер"
+        existing = Relay.query.filter_by(token=token).first()
+        if existing is None:
+            db.session.add(Relay(name=name, token=token, host=host,
+                                 enabled=bool(rd.get("enabled", True))))
+        elif mode == "replace":
+            existing.name, existing.host = name, host
+            existing.enabled = bool(rd.get("enabled", True))
 
     try:
         db.session.commit()

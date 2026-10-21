@@ -978,6 +978,7 @@
     [data-theme^="term"] .nav-link[data-icon="inbounds"]::before  { content: "[=]"; }
     [data-theme^="term"] .nav-link[data-icon="clients"]::before   { content: "[@]"; }
     [data-theme^="term"] .nav-link[data-icon="cascade"]::before   { content: "=>"; }
+    [data-theme^="term"] .nav-link[data-icon="relays"]::before    { content: "<>"; }
     [data-theme^="term"] .nav-link[data-icon="routing"]::before   { content: "::"; }
     [data-theme^="term"] .nav-link[data-icon="security"]::before  { content: "[#]"; }
     [data-theme^="term"] .nav-link[data-icon="split"]::before     { content: "[/]"; }
@@ -1216,6 +1217,9 @@
       <div class="nav-section">Маршрутизация</div>
       <a href="/cascade" data-icon="cascade" class="nav-link {% if request.path == '/cascade' %}active{% endif %}">
         <i class="bi bi-globe-europe-africa"></i> Каскад
+      </a>
+      <a href="/relays" data-icon="relays" class="nav-link {% if request.path == '/relays' %}active{% endif %}">
+        <i class="bi bi-signpost-split"></i> Промежуточные серверы
       </a>
       <a href="/routing" data-icon="routing" class="nav-link {% if request.path == '/routing' %}active{% endif %}">
         <i class="bi bi-diagram-3"></i> Маршрутизация

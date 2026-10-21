@@ -1,0 +1,188 @@
+{% extends "base.html" %}
+{% block title %}Промежуточные серверы — Codex of Admin{% endblock %}
+{% block page_title %}Промежуточные серверы{% endblock %}
+{% block content %}
+
+<style>
+  .rl-steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 8px; }
+  .rl-step { border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; font-size: 12.5px; line-height: 1.55; }
+  .rl-step b { display: block; margin-bottom: 2px; }
+  .rl-note { font-size: 12px; color: var(--text-dim); line-height: 1.6; }
+  .rl-cmd { font-family: var(--font-mono, monospace); font-size: 11.5px; word-break: break-all;
+            padding: 6px 8px; border-radius: 6px; background: var(--surface2); border: 1px solid var(--border); }
+  @media (max-width: 900px) { .rl-steps { grid-template-columns: 1fr; } }
+</style>
+
+<div class="card">
+  <div class="card-header">
+    <span class="card-title">Как это работает</span>
+  </div>
+  <div class="rl-note">
+    Когда мобильный оператор режет соединения с зарубежными серверами, пользователь включает в приложении
+    <b>«У меня блокировки»</b>: телефон подключается к промежуточному серверу в России, а тот просто передаёт
+    поток на <b>этот</b> сервер. Ключи и адрес выхода в интернет у пользователя не меняются, шифрование идёт
+    от телефона до этого сервера — промежуточный сервер ничего не видит и ключей не знает.
+  </div>
+  <div class="rl-steps">
+    <div class="rl-step"><b>1. Добавьте сервер</b>Нажмите «Добавить» — панель выдаст команду установки.</div>
+    <div class="rl-step"><b>2. Запустите команду</b>На промежуточном сервере (Ubuntu/Debian, от root). Дальше он сам сверяется с панелью.</div>
+    <div class="rl-step"><b>3. Готово</b>Приложение получит адрес при обновлении подписки. Пользователю — только галочка «У меня блокировки».</div>
+  </div>
+  <div class="rl-note" style="margin-top:10px" id="rl-target"></div>
+</div>
+
+<div class="card">
+  <div class="card-header">
+    <span class="card-title">Промежуточные серверы</span>
+    <button class="btn btn-primary btn-sm" onclick="openRelayModal()"><i class="bi bi-plus-lg"></i> Добавить</button>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Имя</th><th>Адрес для приложения</th><th>Связь</th><th>Включён</th><th></th></tr></thead>
+      <tbody id="relays-tbody"></tbody>
+    </table>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="modal-relay">
+  <div class="modal-box" style="width:520px">
+    <div class="modal-title" id="relay-modal-title">Новый промежуточный сервер</div>
+    <div class="form-group">
+      <label class="form-label">Имя</label>
+      <input type="text" class="form-control" id="r-name" maxlength="128" placeholder="Москва, VDSina">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Адрес (необязательно)</label>
+      <input type="text" class="form-control" id="r-host" maxlength="64" placeholder="определится сам после установки">
+      <div class="form-text">Публичный IPv4 промежуточного сервера. Оставьте пустым — панель возьмёт адрес, с которого придёт установленный агент.</div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal('modal-relay')">Отмена</button>
+      <button class="btn btn-primary" id="r-save" onclick="saveRelay()">Сохранить</button>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+{% block scripts %}
+<script>
+let state = {relays: [], target: '', ports: [], panel_https: true};
+let editId = null;
+
+async function load() {
+  try {
+    state = await api('GET', '/api/relays/');
+  } catch (e) {
+    toast('Не удалось загрузить: ' + e.message, 'error');
+    return;
+  }
+  render();
+}
+
+function ago(iso) {
+  if (!iso) return null;
+  const sec = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 1000));
+  if (sec < 90) return {text: 'на связи', ok: true};
+  const min = Math.round(sec / 60);
+  if (min < 60) return {text: min + ' мин назад', ok: min <= 10};
+  const h = Math.round(min / 60);
+  if (h < 48) return {text: h + ' ч назад', ok: false};
+  return {text: Math.round(h / 24) + ' дн назад', ok: false};
+}
+
+function render() {
+  const t = document.getElementById('rl-target');
+  if (!state.panel_https) {
+    t.innerHTML = '<span class="text-danger">У панели нет домена с HTTPS — команда установки работать не будет. Сначала настройте домен панели.</span>';
+  } else if (!state.target) {
+    t.innerHTML = '<span class="text-danger">Не удалось определить IPv4 этого сервера — пересылать некуда.</span>';
+  } else {
+    t.innerHTML = 'Пересылка на <code>' + escapeHtml(state.target) + '</code>, порты: '
+      + (state.ports.length ? '<code>' + state.ports.join(', ') + '</code>' : '<span class="text-danger">нет включённых подключений</span>')
+      + '. Порт 22 не пересылается никогда (на нём ssh самого промежуточного сервера).';
+  }
+  const tb = document.getElementById('relays-tbody');
+  if (!state.relays.length) {
+    tb.innerHTML = '<tr><td colspan="5" class="text-dim">Пока нет. Нажмите «Добавить».</td></tr>';
+    return;
+  }
+  tb.innerHTML = state.relays.map(r => {
+    const seen = ago(r.last_seen);
+    const link = seen
+      ? `<span class="badge ${seen.ok ? 'badge-active' : 'badge-warn'}">${escapeHtml(seen.text)}</span>`
+      : '<span class="badge badge-inactive">ещё не установлен</span>';
+    const host = r.public_host
+      ? `<code>${escapeHtml(r.public_host)}</code>${r.host ? '' : ' <span class="text-dim" style="font-size:11px">(определён сам)</span>'}`
+      : '<span class="text-dim">определится после установки</span>';
+    const cmd = r.install_command
+      ? `<div class="rl-cmd" style="margin-top:6px">${escapeHtml(r.install_command)}</div>
+         <button class="btn btn-outline btn-sm" style="margin-top:4px" onclick="copyCmd(${r.id})"><i class="bi bi-clipboard"></i> Скопировать команду установки</button>`
+      : '';
+    return `<tr>
+      <td><b>${escapeHtml(r.name)}</b>${cmd}</td>
+      <td>${host}</td>
+      <td>${link}</td>
+      <td><input type="checkbox" ${r.enabled ? 'checked' : ''} onchange="toggleRelay(${r.id}, this.checked)"></td>
+      <td style="white-space:nowrap">
+        <button class="btn btn-outline btn-sm" onclick="openRelayModal(${r.id})"><i class="bi bi-pencil"></i></button>
+        <button class="btn btn-outline btn-sm" onclick="deleteRelay(${r.id})"><i class="bi bi-trash"></i></button>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+function copyCmd(id) {
+  const r = state.relays.find(x => x.id === id);
+  if (r && r.install_command) copyText(r.install_command);
+}
+
+function openRelayModal(id) {
+  editId = id || null;
+  const r = editId ? state.relays.find(x => x.id === editId) : null;
+  document.getElementById('relay-modal-title').textContent = r ? 'Промежуточный сервер' : 'Новый промежуточный сервер';
+  document.getElementById('r-name').value = r ? r.name : '';
+  document.getElementById('r-host').value = r && r.host ? r.host : '';
+  openModal('modal-relay');
+}
+
+async function saveRelay() {
+  const body = {
+    name: document.getElementById('r-name').value.trim(),
+    host: document.getElementById('r-host').value.trim(),
+  };
+  try {
+    if (editId) await api('PUT', `/api/relays/${editId}`, body);
+    else await api('POST', '/api/relays/', body);
+    closeModal('modal-relay');
+    toast(editId ? 'Сохранено' : 'Добавлено — скопируйте команду установки');
+    load();
+  } catch (e) {
+    toast(e.message, 'error');
+  }
+}
+
+async function toggleRelay(id, on) {
+  try {
+    await api('PUT', `/api/relays/${id}`, {enabled: on});
+    load();
+  } catch (e) {
+    toast(e.message, 'error');
+    load();
+  }
+}
+
+async function deleteRelay(id) {
+  const r = state.relays.find(x => x.id === id);
+  if (!r || !confirm(`Удалить «${r.name}»? Пересылка на нём снимется сама в течение пары минут.`)) return;
+  try {
+    await api('DELETE', `/api/relays/${id}`);
+    load();
+  } catch (e) {
+    toast(e.message, 'error');
+  }
+}
+
+load();
+setInterval(load, 30000);
+</script>
+{% endblock %}
