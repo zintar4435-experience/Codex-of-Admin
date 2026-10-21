@@ -194,6 +194,7 @@ def create_app(config_overrides: dict = None) -> Flask:
     from app.api.security import bp as security_bp
     from app.api.subscription import bp as subscription_bp
     from app.api.backup import bp as backup_bp
+    from app.api.relays import bp as relays_bp, agent_bp as relay_agent_bp
     from app.views import bp as views_bp
 
     app.register_blueprint(auth_bp, url_prefix="/auth")
@@ -209,6 +210,8 @@ def create_app(config_overrides: dict = None) -> Flask:
     app.register_blueprint(backup_bp, url_prefix="/api/backup")
     # Subscription URL — публичный (без авторизации), доступ только по токену.
     app.register_blueprint(subscription_bp, url_prefix="/sub")
+    app.register_blueprint(relays_bp, url_prefix="/api/relays")
+    app.register_blueprint(relay_agent_bp, url_prefix="/relay-agent")
     app.register_blueprint(views_bp)
 
     # --- DB init ---

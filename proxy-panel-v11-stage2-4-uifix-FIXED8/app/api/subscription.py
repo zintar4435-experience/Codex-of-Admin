@@ -19,6 +19,7 @@ from flask import Blueprint, abort, Response
 
 from app.models import Client
 from app.api.clients import generate_link
+from app.core import relays as relays_core
 
 bp = Blueprint("subscription", __name__)
 
@@ -90,5 +91,14 @@ def subscription(token: str):
         # запрещено её кэшировать.
         "Cache-Control": "no-store, no-cache, must-revalidate",
     }
+    # Промежуточные серверы для режима «У меня блокировки» в приложении
+    # Codex of Connect (app/core/relays.py). Чужие клиенты заголовок
+    # игнорируют; без промежуточных серверов его нет вовсе.
+    try:
+        relays_header = relays_core.subscription_header()
+    except Exception:
+        relays_header = None
+    if relays_header:
+        headers[relays_core.SUBSCRIPTION_HEADER] = relays_header
 
     return Response(body, status=200, headers=headers)

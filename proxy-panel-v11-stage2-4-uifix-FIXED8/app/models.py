@@ -521,6 +521,53 @@ class SplitTunnelList(db.Model):
 
 
 # ---------------------------------------------------------------------------
+# Промежуточные серверы («У меня блокировки»)
+# ---------------------------------------------------------------------------
+
+class Relay(db.Model):
+    """Промежуточный сервер в России: «немой» пересыльщик портов на ЭТОТ
+    (основной) сервер. Ничего не расшифровывает — шифрование идёт от
+    телефона до основного сервера, у пользователя тот же ключ и тот же
+    IP на выходе. Приложение ходит через него, только когда пользователь
+    сам включил «У меня блокировки». Подробнее — app/core/relays.py.
+    """
+    __tablename__ = "relays"
+
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(128), nullable=False)
+    # Секрет агента на промежуточном сервере (установка и получение
+    # настроек). Наружу (to_dict) не отдаётся.
+    token = db.Column(db.String(64), unique=True, nullable=False)
+    # Адрес, который получит приложение. Пусто — берём адрес, с которого
+    # агент последний раз приходил за настройками (detected_ip).
+    host = db.Column(db.String(64), nullable=True)
+    detected_ip = db.Column(db.String(64), nullable=True)
+    enabled = db.Column(db.Boolean, default=True)
+    last_seen = db.Column(db.DateTime, nullable=True)
+    agent_version = db.Column(db.String(32), nullable=True)
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+
+    @property
+    def public_host(self) -> str:
+        return (self.host or self.detected_ip or "").strip()
+
+    def to_dict(self) -> dict:
+        last = self.last_seen
+        if last is not None and last.tzinfo is None:
+            last = last.replace(tzinfo=timezone.utc)
+        return {
+            "id": self.id,
+            "name": self.name,
+            "host": self.host,
+            "detected_ip": self.detected_ip,
+            "public_host": self.public_host,
+            "enabled": self.enabled,
+            "last_seen": last.isoformat() if last else None,
+            "agent_version": self.agent_version,
+        }
+
+
+# ---------------------------------------------------------------------------
 # Global settings (key-value)
 # ---------------------------------------------------------------------------
 
