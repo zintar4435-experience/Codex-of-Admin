@@ -42,7 +42,9 @@ SUBSCRIPTION_HEADER = "Coc-Relays"
 # Порт ssh самого промежуточного сервера — не пересылается никогда.
 RESERVED_PORTS = frozenset({22})
 
-AGENT_VERSION = "1"
+# 2 — счётчик трафика (2026-10-22): агент сообщает панели, сколько байт
+# переслал. Агент версии 1 пересылает как раньше, только без счётчика.
+AGENT_VERSION = "2"
 
 
 def new_token() -> str:
@@ -152,6 +154,46 @@ def config_text(relay: Relay) -> str:
     return "\n".join(lines) + "\n"
 
 
+_EPOCH = re.compile(r"^[0-9a-f]{1,32}$")
+_BYTES = re.compile(r"^[0-9]{1,18}$")  # влезает в BIGINT
+
+
+def add_traffic_report(relay: Relay, epoch, up, down, now) -> bool:
+    """Отчёт агента о счётчиках: прибавить прирост к накопленному.
+
+    Агент шлёт байты с момента загрузки своей таблицы nftables и «эпоху» —
+    метку этой загрузки. Та же эпоха — прибавляем разницу с прошлым
+    отчётом; новая (агент перезагрузил правила, сервер перезагрузился) —
+    счётчики начались с нуля, прибавляем их целиком. Кривой отчёт
+    игнорируем: на пересылку он не влияет. True — отчёт принят."""
+    if not all(isinstance(v, str) for v in (epoch, up, down)):
+        return False
+    if not (_EPOCH.match(epoch) and _BYTES.match(up) and _BYTES.match(down)):
+        return False
+    up_b, down_b = int(up), int(down)
+    if (relay.counter_epoch == epoch and up_b >= (relay.counter_up or 0)
+            and down_b >= (relay.counter_down or 0)):
+        d_up = up_b - (relay.counter_up or 0)
+        d_down = down_b - (relay.counter_down or 0)
+    else:
+        d_up, d_down = up_b, down_b
+    relay.traffic_up = (relay.traffic_up or 0) + d_up
+    relay.traffic_down = (relay.traffic_down or 0) + d_down
+    relay.counter_up, relay.counter_down = up_b, down_b
+    relay.counter_epoch = epoch
+    if relay.traffic_since is None:
+        relay.traffic_since = now
+    return True
+
+
+def reset_traffic(relay: Relay, now) -> None:
+    """Обнулить накопленное. Отметка агента остаётся — следующий отчёт
+    прибавит только новый трафик."""
+    relay.traffic_up = 0
+    relay.traffic_down = 0
+    relay.traffic_since = now
+
+
 _SAFE_URL = re.compile(r"^https://[A-Za-z0-9.-]+(:\d{1,5})?$")
 _SAFE_TOKEN = re.compile(r"^[A-Za-z0-9_-]{16,64}$")
 
@@ -211,6 +253,16 @@ cat > /usr/local/bin/coc-relay-sync <<'SYNC'
 set -euo pipefail
 . /etc/coc-relay/env
 STATE=/etc/coc-relay/rules.nft
+EPOCH=/etc/coc-relay/counter-epoch
+
+# Счётчик трафика: при каждой загрузке таблицы (смена портов, перезагрузка
+# сервера) счётчики ядра обнуляются — новая «эпоха», панель по ней знает,
+# что считать надо с нуля.
+new_epoch() { head -c 8 /dev/urandom | od -An -tx1 | tr -d ' \n' > "$EPOCH"; }
+counter_bytes() {
+  nft list counter ip coc_relay "$1" 2>/dev/null \
+    | sed -n 's/.*bytes \([0-9][0-9]*\).*/\1/p' | head -n 1 || true
+}
 
 remove_rules() {
   if nft list table ip coc_relay >/dev/null 2>&1; then
@@ -229,13 +281,22 @@ keep_rules() {
   echo "coc-relay: $1 — правила не меняю"
   if [ -f "$STATE" ] && ! nft list table ip coc_relay >/dev/null 2>&1; then
     { echo "table ip coc_relay"; echo "delete table ip coc_relay"; cat "$STATE"; } | nft -f - \
-      && echo "coc-relay: восстановил сохранённую пересылку"
+      && new_epoch && echo "coc-relay: восстановил сохранённую пересылку"
   fi
   exit 0
 }
 
+# Сколько переслано с загрузки таблицы — уходит вместе с запросом настроек.
+# Счётчиков нет (таблица старого агента или ещё не создана) — не сообщаем.
+report=""
+up=$(counter_bytes up); down=$(counter_bytes down)
+if [ -n "$up" ] && [ -n "$down" ]; then
+  [ -s "$EPOCH" ] || new_epoch
+  report="&ep=$(cat "$EPOCH")&up=$up&down=$down"
+fi
+
 code=$(curl -4 -sS --max-time 20 -o "$body" -w '%{http_code}' \
-  "$PANEL_URL/relay-agent/$TOKEN/config?v=__AGENT_VERSION__" || true)
+  "$PANEL_URL/relay-agent/$TOKEN/config?v=__AGENT_VERSION__$report" || true)
 code=${code:-000}
 
 # Снимаем пересылку только по явной команде панели: 410 (сервер удалён из
@@ -297,6 +358,8 @@ set_ports=$safe
 
 cat > "$body.nft" <<NFT
 table ip coc_relay {
+  counter up { }
+  counter down { }
   chain prerouting {
     type nat hook prerouting priority dstnat; policy accept;
     fib daddr type local tcp dport { $set_ports } dnat to $target
@@ -304,6 +367,11 @@ table ip coc_relay {
   chain postrouting {
     type nat hook postrouting priority srcnat; policy accept;
     ip daddr $target tcp dport { $set_ports } masquerade
+  }
+  chain forward {
+    type filter hook forward priority filter; policy accept;
+    ip daddr $target tcp dport { $set_ports } counter name "up"
+    ip saddr $target tcp sport { $set_ports } counter name "down"
   }
 }
 NFT
@@ -314,6 +382,7 @@ if [ -f "$STATE" ] && cmp -s "$body.nft" "$STATE" \
 fi
 
 { echo "table ip coc_relay"; echo "delete table ip coc_relay"; cat "$body.nft"; } | nft -f -
+new_epoch
 install -m 600 "$body.nft" "$STATE"
 echo "coc-relay: пересылка на $target, порты $set_ports"
 SYNC

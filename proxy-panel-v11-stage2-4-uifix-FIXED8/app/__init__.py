@@ -481,6 +481,21 @@ def _ensure_schema():
             if "region" not in existing:
                 conn.execute(text("ALTER TABLE external_outbounds ADD COLUMN region VARCHAR(8)"))
 
+    # --- relays: счётчик трафика промежуточного сервера (2026-10-22) ---
+    if "relays" in inspector.get_table_names():
+        existing = {c["name"] for c in inspector.get_columns("relays")}
+        with db.engine.begin() as conn:
+            for col, ddl in (
+                ("traffic_up", "BIGINT DEFAULT 0"),
+                ("traffic_down", "BIGINT DEFAULT 0"),
+                ("traffic_since", "DATETIME"),
+                ("counter_up", "BIGINT DEFAULT 0"),
+                ("counter_down", "BIGINT DEFAULT 0"),
+                ("counter_epoch", "VARCHAR(32)"),
+            ):
+                if col not in existing:
+                    conn.execute(text(f"ALTER TABLE relays ADD COLUMN {col} {ddl}"))
+
     # --- users: поля двухфакторной аутентификации (TOTP) ---
     # Старые БД не имеют этих колонок; добавляем с безопасными значениями
     # по умолчанию (2FA выключена, секрета нет) — на вход это не влияет.
