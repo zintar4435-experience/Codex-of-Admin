@@ -9,6 +9,10 @@ VPS на Ubuntu 22.04 / 24.04 (x86_64): инбаунды, клиенты, лим
 > чистого сервера до первого работающего подключения, включая режим «за
 > настоящим сайтом» и грабли, на которые мы уже наступили. Ниже — краткая
 > справка для тех, кто уже в курсе.
+>
+> **Setting up the panel for the first time?** See
+> **[docs/setup-guide.en.html](docs/setup-guide.en.html)** — the same step-by-step
+> guide in English.
 
 ---
 

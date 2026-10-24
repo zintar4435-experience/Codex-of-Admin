@@ -10,6 +10,7 @@
   .rl-note { font-size: 12px; color: var(--text-dim); line-height: 1.6; }
   .rl-cmd { font-family: var(--font-mono, monospace); font-size: 11.5px; word-break: break-all;
             padding: 6px 8px; border-radius: 6px; background: var(--surface2); border: 1px solid var(--border); }
+  .rl-traffic { font-size: 12.5px; line-height: 1.5; white-space: nowrap; }
   @media (max-width: 900px) { .rl-steps { grid-template-columns: 1fr; } }
 </style>
 
@@ -38,9 +39,14 @@
   </div>
   <div class="table-wrap">
     <table>
-      <thead><tr><th>Имя</th><th>Адрес для приложения</th><th>Связь</th><th>Включён</th><th></th></tr></thead>
+      <thead><tr><th>Имя</th><th>Адрес для приложения</th><th>Связь</th><th>Трафик</th><th>Включён</th><th></th></tr></thead>
       <tbody id="relays-tbody"></tbody>
     </table>
+  </div>
+  <div class="rl-note" style="margin-top:8px">
+    Трафик — сколько промежуточный сервер переслал: ↑ от пользователей к этому серверу, ↓ обратно.
+    Хостинг промежуточного сервера считает по-своему: каждый байт проходит через него дважды
+    (пришёл и ушёл), поэтому в кабинете хостера цифра может быть примерно вдвое больше.
   </div>
 </div>
 
@@ -66,7 +72,7 @@
 {% endblock %}
 {% block scripts %}
 <script>
-let state = {relays: [], target: '', ports: [], panel_https: true};
+let state = {relays: [], target: '', ports: [], panel_https: true, agent_version: ''};
 let editId = null;
 
 async function load() {
@@ -103,7 +109,7 @@ function render() {
   }
   const tb = document.getElementById('relays-tbody');
   if (!state.relays.length) {
-    tb.innerHTML = '<tr><td colspan="5" class="text-dim">Пока нет. Нажмите «Добавить».</td></tr>';
+    tb.innerHTML = '<tr><td colspan="6" class="text-dim">Пока нет. Нажмите «Добавить».</td></tr>';
     return;
   }
   tb.innerHTML = state.relays.map(r => {
@@ -122,6 +128,7 @@ function render() {
       <td><b>${escapeHtml(r.name)}</b>${cmd}</td>
       <td>${host}</td>
       <td>${link}</td>
+      <td>${trafficCell(r)}</td>
       <td><input type="checkbox" ${r.enabled ? 'checked' : ''} onchange="toggleRelay(${r.id}, this.checked)"></td>
       <td style="white-space:nowrap">
         <button class="btn btn-outline btn-sm" onclick="openRelayModal(${r.id})"><i class="bi bi-pencil"></i></button>
@@ -129,6 +136,37 @@ function render() {
       </td>
     </tr>`;
   }).join('');
+}
+
+function fmtBytes(n) {
+  n = Number(n) || 0;
+  if (n < 1024 * 1024) return (n / 1024).toFixed(0) + ' КБ';
+  if (n < 1024 * 1024 * 1024) return (n / 1024 / 1024).toFixed(1) + ' МБ';
+  return (n / 1024 / 1024 / 1024).toFixed(2) + ' ГБ';
+}
+
+function trafficCell(r) {
+  if (!r.agent_version) return '<span class="text-dim">—</span>';
+  // Агент старше нынешнего не умеет считать: нужна повторная установка.
+  if (Number(r.agent_version) < Number(state.agent_version) && !r.traffic_since) {
+    return '<span class="text-dim" style="font-size:12px">не считается —<br>повторите команду установки</span>';
+  }
+  if (!r.traffic_since) return '<span class="text-dim">пока 0</span>';
+  const since = new Date(r.traffic_since).toLocaleDateString('ru-RU');
+  return `<div class="rl-traffic">↑ ${fmtBytes(r.traffic_up)} · ↓ ${fmtBytes(r.traffic_down)}<br>
+    <span class="text-dim" style="font-size:11px">всего ${fmtBytes((r.traffic_up || 0) + (r.traffic_down || 0))} с ${escapeHtml(since)}</span>
+    <button class="btn btn-outline btn-sm" style="padding:0 6px;font-size:11px" title="Обнулить" onclick="resetTraffic(${r.id})"><i class="bi bi-arrow-counterclockwise"></i></button></div>`;
+}
+
+async function resetTraffic(id) {
+  const r = state.relays.find(x => x.id === id);
+  if (!r || !confirm(`Обнулить счётчик трафика «${r.name}»?`)) return;
+  try {
+    await api('POST', `/api/relays/${id}/reset-traffic`);
+    load();
+  } catch (e) {
+    toast(e.message, 'error');
+  }
 }
 
 function copyCmd(id) {

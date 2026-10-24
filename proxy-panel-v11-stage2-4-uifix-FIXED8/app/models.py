@@ -546,6 +546,16 @@ class Relay(db.Model):
     last_seen = db.Column(db.DateTime, nullable=True)
     agent_version = db.Column(db.String(32), nullable=True)
     created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+    # Счётчик трафика (агент версии 2+). traffic_* — накоплено с
+    # traffic_since (байты); counter_* и counter_epoch — последнее, что
+    # прислал агент: по ним считается прирост (app/core/relays.py
+    # add_traffic_report).
+    traffic_up = db.Column(db.BigInteger, default=0)
+    traffic_down = db.Column(db.BigInteger, default=0)
+    traffic_since = db.Column(db.DateTime, nullable=True)
+    counter_up = db.Column(db.BigInteger, default=0)
+    counter_down = db.Column(db.BigInteger, default=0)
+    counter_epoch = db.Column(db.String(32), nullable=True)
 
     @property
     def public_host(self) -> str:
@@ -555,6 +565,9 @@ class Relay(db.Model):
         last = self.last_seen
         if last is not None and last.tzinfo is None:
             last = last.replace(tzinfo=timezone.utc)
+        since = self.traffic_since
+        if since is not None and since.tzinfo is None:
+            since = since.replace(tzinfo=timezone.utc)
         return {
             "id": self.id,
             "name": self.name,
@@ -564,6 +577,9 @@ class Relay(db.Model):
             "enabled": self.enabled,
             "last_seen": last.isoformat() if last else None,
             "agent_version": self.agent_version,
+            "traffic_up": self.traffic_up or 0,
+            "traffic_down": self.traffic_down or 0,
+            "traffic_since": since.isoformat() if since else None,
         }
 
 

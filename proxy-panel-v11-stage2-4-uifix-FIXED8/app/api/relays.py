@@ -48,6 +48,7 @@ def overview():
         "target": relays_core.target_ip(),
         "ports": relays_core.forward_ports(),
         "panel_https": bool((Setting.get("panel_domain", "") or "").strip()),
+        "agent_version": relays_core.AGENT_VERSION,
     })
 
 
@@ -91,6 +92,16 @@ def update_relay(relay_id: int):
         r.enabled = bool(data.get("enabled"))
     db.session.commit()
     log_action("relay.update", target_type="relay", target_id=r.id, target_name=r.name)
+    return jsonify(_view(r))
+
+
+@bp.post("/<int:relay_id>/reset-traffic")
+@login_required
+def reset_relay_traffic(relay_id: int):
+    r = db.session.get(Relay, relay_id) or abort(404)
+    relays_core.reset_traffic(r, datetime.now(timezone.utc))
+    db.session.commit()
+    log_action("relay.reset_traffic", target_type="relay", target_id=r.id, target_name=r.name)
     return jsonify(_view(r))
 
 
@@ -146,6 +157,11 @@ def agent_config(token: str):
     version = (request.args.get("v") or "").strip()[:32]
     if version:
         r.agent_version = version
+    # Счётчик трафика (агент версии 2+; старый агент его не шлёт).
+    if "ep" in request.args:
+        relays_core.add_traffic_report(
+            r, request.args.get("ep"), request.args.get("up"),
+            request.args.get("down"), r.last_seen)
     db.session.commit()
     # Адрес этого сервера не определился надёжно — 503: агент оставит
     # прежнюю пересылку как есть (а не «выключит» её или не перешлёт в 10.x).

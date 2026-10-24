@@ -1,0 +1,609 @@
+<title>Codex of Admin — setup</title>
+<style>
+  :root {
+    --bg: #F6F8F9; --surface: #FFFFFF; --surface-2: #EEF2F3; --ink: #141A1E;
+    --ink-soft: #3D474D; --mute: #6B767C; --line: #DCE3E5; --accent: #0E9F8C;
+    --accent-ink: #0B7C6E; --accent-wash: #E1F3F0; --warn: #B87611;
+    --warn-wash: #F8EEDC; --danger: #C0492F;
+    --shadow: 0 1px 2px rgba(20,26,30,.05), 0 8px 24px rgba(20,26,30,.06);
+    --radius: 14px; --maxw: 50rem;
+    --mono: ui-monospace, "Cascadia Code", "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace;
+    --sans: "Segoe UI Variable Display", "Segoe UI", -apple-system, BlinkMacSystemFont, "SF Pro Display", system-ui, Roboto, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0D1114; --surface: #141A1E; --surface-2: #1B2329; --ink: #E8EDEF;
+      --ink-soft: #C2CBD0; --mute: #8A959B; --line: #263036; --accent: #2AC6B0;
+      --accent-ink: #63D8C7; --accent-wash: #10312D; --warn: #E0A64A;
+      --warn-wash: #2C2413; --danger: #E67A62;
+      --shadow: 0 1px 2px rgba(0,0,0,.3), 0 10px 30px rgba(0,0,0,.35);
+    }
+  }
+  :root[data-theme="light"] {
+    --bg: #F6F8F9; --surface: #FFFFFF; --surface-2: #EEF2F3; --ink: #141A1E;
+    --ink-soft: #3D474D; --mute: #6B767C; --line: #DCE3E5; --accent: #0E9F8C;
+    --accent-ink: #0B7C6E; --accent-wash: #E1F3F0; --warn: #B87611;
+    --warn-wash: #F8EEDC; --danger: #C0492F;
+    --shadow: 0 1px 2px rgba(20,26,30,.05), 0 8px 24px rgba(20,26,30,.06);
+  }
+  :root[data-theme="dark"] {
+    --bg: #0D1114; --surface: #141A1E; --surface-2: #1B2329; --ink: #E8EDEF;
+    --ink-soft: #C2CBD0; --mute: #8A959B; --line: #263036; --accent: #2AC6B0;
+    --accent-ink: #63D8C7; --accent-wash: #10312D; --warn: #E0A64A;
+    --warn-wash: #2C2413; --danger: #E67A62;
+    --shadow: 0 1px 2px rgba(0,0,0,.3), 0 10px 30px rgba(0,0,0,.35);
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+    font-family: var(--sans); font-size: 17px; line-height: 1.62;
+    -webkit-font-smoothing: antialiased; }
+  .wrap { max-width: var(--maxw); margin: 0 auto; padding: 0 20px; }
+
+  .topbar { position: sticky; top: 0; z-index: 20;
+    background: color-mix(in srgb, var(--bg) 86%, transparent);
+    backdrop-filter: blur(12px); border-bottom: 1px solid var(--line); }
+  .topbar .wrap { display: flex; align-items: center; gap: 12px;
+    min-height: 58px; flex-wrap: wrap; }
+  .brand { display: flex; align-items: center; gap: 9px; font-weight: 640; letter-spacing: -.01em; }
+  .brand .glyph { width: 26px; height: 26px; border-radius: 8px; flex: none;
+    background: linear-gradient(150deg, var(--accent), var(--accent-ink));
+    display: grid; place-items: center; color: #fff;
+    box-shadow: 0 2px 8px color-mix(in srgb, var(--accent) 45%, transparent); }
+  .brand .glyph svg { width: 15px; height: 15px; }
+  .brand small { color: var(--mute); font-weight: 500; }
+  .spacer { flex: 1 1 auto; }
+
+  .seg { display: inline-flex; padding: 3px; gap: 2px;
+    background: var(--surface-2); border: 1px solid var(--line); border-radius: 10px; }
+  .seg button { appearance: none; border: 0; cursor: pointer; font: inherit;
+    font-size: 13px; font-weight: 560; color: var(--mute); background: transparent;
+    padding: 6px 12px; border-radius: 7px; line-height: 1;
+    display: inline-flex; align-items: center; gap: 6px;
+    transition: color .15s, background .15s, box-shadow .15s; }
+  .seg button svg { width: 14px; height: 14px; }
+  .seg button[aria-pressed="true"] { color: var(--ink); background: var(--surface); box-shadow: var(--shadow); }
+  .seg button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .seg.lang button { padding: 6px 10px; }
+
+  .hero { padding: 58px 0 30px; }
+  .eyebrow { font-size: 12px; letter-spacing: .14em; text-transform: uppercase;
+    color: var(--accent-ink); font-weight: 640; margin: 0 0 16px; }
+  h1 { font-size: clamp(2rem, 6vw, 3.1rem); line-height: 1.06;
+    letter-spacing: -.028em; font-weight: 720; margin: 0; text-wrap: balance; }
+  .lede { margin: 20px 0 0; font-size: 1.13rem; color: var(--ink-soft); max-width: 42ch; text-wrap: pretty; }
+
+  .keystone { margin: 34px 0 8px; position: relative; background: var(--surface);
+    border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow);
+    padding: 22px 24px 22px 26px; overflow: hidden; }
+  .keystone::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 4px;
+    background: linear-gradient(var(--accent), var(--accent-ink)); }
+  .keystone h2 { margin: 0 0 6px; font-size: 1.06rem; letter-spacing: -.01em; }
+  .keystone p { margin: 0; color: var(--ink-soft); font-size: .98rem; }
+  .keystone strong { color: var(--ink); }
+
+  section { padding: 26px 0; border-top: 1px solid var(--line); }
+  section:first-of-type { border-top: 0; }
+  .kicker { display: flex; align-items: baseline; gap: 12px; margin: 0 0 6px; }
+  .num { font-variant-numeric: tabular-nums; font-family: var(--mono);
+    font-size: .82rem; font-weight: 600; color: var(--accent-ink);
+    background: var(--accent-wash); border-radius: 6px; padding: 3px 8px; flex: none; line-height: 1; }
+  h2 { font-size: 1.4rem; letter-spacing: -.02em; margin: 0; font-weight: 680; text-wrap: balance; }
+  h2.plain { margin: 0 0 10px; }
+  p { margin: 0 0 14px; } p:last-child { margin-bottom: 0; }
+
+  ul.clean { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+  ul.clean li { position: relative; padding-left: 26px; color: var(--ink-soft); }
+  ul.clean li::before { content: ""; position: absolute; left: 4px; top: .62em;
+    width: 7px; height: 7px; border-radius: 50%; background: var(--accent); }
+  ul.clean li b { color: var(--ink); font-weight: 600; }
+
+  .path { font-family: var(--mono); font-size: .86em; background: var(--surface-2);
+    border: 1px solid var(--line); border-radius: 6px; padding: 1px 7px; white-space: nowrap; color: var(--ink); }
+  code { font-family: var(--mono); font-size: .86em; background: var(--surface-2);
+    border: 1px solid var(--line); border-radius: 5px; padding: 1px 5px; }
+
+  .note { display: grid; grid-template-columns: 22px 1fr; gap: 12px; background: var(--surface);
+    border: 1px solid var(--line); border-left: 3px solid var(--accent); border-radius: 10px;
+    padding: 15px 17px; margin: 16px 0 0; font-size: .95rem; }
+  .note.warn { border-left-color: var(--warn); background: color-mix(in srgb, var(--warn-wash) 55%, var(--surface)); }
+  .note.danger { border-left-color: var(--danger); }
+  .note .ic { color: var(--accent); margin-top: 2px; }
+  .note.warn .ic { color: var(--warn); } .note.danger .ic { color: var(--danger); }
+  .note svg { width: 18px; height: 18px; }
+  .note b { color: var(--ink); } .note p { margin: 0; color: var(--ink-soft); }
+
+  .plat { border: 1px solid var(--line); border-radius: 12px; padding: 16px 18px; margin-top: 14px; background: var(--surface); }
+  .plat > .tag { display: inline-flex; align-items: center; gap: 6px; font-size: 12px;
+    font-weight: 640; letter-spacing: .02em; color: var(--accent-ink); margin-bottom: 10px; }
+  .plat > .tag svg { width: 14px; height: 14px; }
+  body[data-plat="android"] .windows-only { display: none; }
+  body[data-plat="windows"] .android-only { display: none; }
+
+  details { border: 1px solid var(--line); border-radius: 11px; background: var(--surface); margin-top: 10px; overflow: hidden; }
+  details[open] { box-shadow: var(--shadow); }
+  summary { cursor: pointer; list-style: none; padding: 15px 18px; font-weight: 580;
+    color: var(--ink); display: flex; align-items: center; gap: 12px; font-size: 1rem; }
+  summary::-webkit-details-marker { display: none; }
+  summary .chev { margin-left: auto; color: var(--mute); transition: transform .2s; flex: none; }
+  summary .chev svg { width: 16px; height: 16px; display: block; }
+  details[open] summary .chev { transform: rotate(90deg); }
+  summary .q { color: var(--accent-ink); font-family: var(--mono); font-size: .8rem; flex: none; }
+  details .body { padding: 0 18px 16px 44px; color: var(--ink-soft); font-size: .95rem; }
+
+  footer { border-top: 1px solid var(--line); margin-top: 12px; padding: 28px 0 48px; color: var(--mute); font-size: .88rem; }
+  footer .wrap { display: flex; gap: 14px; flex-wrap: wrap; align-items: center; justify-content: space-between; }
+  a { color: var(--accent-ink); text-underline-offset: 2px; }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+  @media (max-width: 560px) { body { font-size: 16px; } .hero { padding: 40px 0 22px; } details .body { padding-left: 18px; } }
+</style>
+<style>
+  pre { font-family: var(--mono); font-size: .84rem; line-height: 1.55;
+    background: var(--surface-2); border: 1px solid var(--line);
+    border-radius: 10px; padding: 14px 16px; margin: 14px 0 0;
+    overflow-x: auto; color: var(--ink); }
+  pre code { background: none; border: 0; padding: 0; font-size: inherit; }
+  .cmd { position: relative; }
+  .cmd .who { position: absolute; right: 12px; top: 10px; font-size: 11px;
+    letter-spacing: .06em; text-transform: uppercase; color: var(--mute);
+    font-family: var(--sans); font-weight: 620; }
+  table { width: 100%; border-collapse: collapse; margin: 16px 0 0; font-size: .93rem; }
+  th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--line);
+    vertical-align: top; color: var(--ink-soft); }
+  th { color: var(--ink); font-weight: 620; font-size: .86rem;
+    letter-spacing: .02em; text-transform: uppercase; }
+  td b { color: var(--ink); font-weight: 600; }
+  tr:last-child td { border-bottom: 0; }
+  ol.steps { counter-reset: s; list-style: none; margin: 14px 0 0; padding: 0; display: grid; gap: 14px; }
+  ol.steps > li { counter-increment: s; position: relative; padding-left: 38px; color: var(--ink-soft); }
+  ol.steps > li::before { content: counter(s); position: absolute; left: 0; top: -1px;
+    width: 25px; height: 25px; border-radius: 8px; background: var(--accent-wash);
+    color: var(--accent-ink); font-family: var(--mono); font-size: .8rem; font-weight: 640;
+    display: grid; place-items: center; }
+  ol.steps > li b { color: var(--ink); font-weight: 620; }
+  /* Длинная команда внутри шага не распирает страницу — прокручивается сама. */
+  ol.steps > li, ul.clean li { min-width: 0; }
+  @media (max-width: 640px) { table { display: block; overflow-x: auto; } }
+  .toc { display: grid; gap: 6px; margin: 18px 0 0; }
+  .toc a { display: flex; gap: 12px; align-items: baseline; text-decoration: none;
+    padding: 8px 12px; border-radius: 9px; border: 1px solid transparent; color: var(--ink-soft); }
+  .toc a:hover { background: var(--surface); border-color: var(--line); }
+  .toc a span.n { font-family: var(--mono); font-size: .78rem; color: var(--accent-ink); flex: none; }
+  .toc a b { color: var(--ink); font-weight: 580; }
+</style>
+
+<body>
+<div class="topbar"><div class="wrap">
+  <div class="brand">
+    <span class="glyph"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 4 6v6c0 5 3.4 8.6 8 10 4.6-1.4 8-5 8-10V6z"/></svg></span>
+    Codex of Admin <small>&nbsp;setup</small>
+  </div>
+  <div class="spacer"></div>
+  <div class="seg">
+    <button aria-pressed="false" onclick="location.href='setup-guide.html'">RU</button>
+    <button aria-pressed="true">EN</button>
+  </div>
+  <div class="seg">
+    <button id="t-light" aria-pressed="false" onclick="setTheme('light')">Light</button>
+    <button id="t-dark" aria-pressed="false" onclick="setTheme('dark')">Dark</button>
+  </div>
+</div></div>
+
+<div class="wrap">
+
+<div class="hero">
+  <p class="eyebrow">Your own panel on your own server</p>
+  <h1>Setting up Codex&nbsp;of&nbsp;Admin</h1>
+  <p class="lede">From a clean server to the first working connection. No prior knowledge needed — everything step by step.</p>
+</div>
+
+<div class="keystone">
+  <h2>What you get in the end</h2>
+  <p>A working server with the panel and a connection that doesn’t stand out. There are several schemes — from the fastest to the least noticeable — and they <strong>can be combined on one server</strong>. Which one to take is covered in step 06; if you don’t want to choose, there is a ready answer there too.</p>
+</div>
+
+<div class="note"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 8v5m0 3h.01"/></svg></span>
+<p><b>The panel interface is in Russian.</b> Button and menu names are given here exactly as they appear on screen, in Russian, with an English translation in brackets — for example <b>«Добавить»</b> (Add).</p></div>
+
+<div class="toc">
+  <a href="#p0"><span class="n">00</span><b>What you need beforehand</b></a>
+  <a href="#p1"><span class="n">01</span><b>Domains and DNS</b></a>
+  <a href="#p2"><span class="n">02</span><b>Installation</b></a>
+  <a href="#p3"><span class="n">03</span><b>First login and HTTPS</b></a>
+  <a href="#p4"><span class="n">04</span><b>Security — right away, not later</b></a>
+  <a href="#p5"><span class="n">05</span><b>Cover website</b></a>
+  <a href="#p6"><span class="n">06</span><b>Which scheme to choose</b></a>
+  <a href="#p6a"><span class="n">06·A</span><b>VLESS + Reality</b></a>
+  <a href="#p6b"><span class="n">06·B</span><b>Behind a real website</b></a>
+  <a href="#p6c"><span class="n">06·C</span><b>Both schemes on one server</b></a>
+  <a href="#p6d"><span class="n">06·D</span><b>NaiveProxy and SSH</b></a>
+  <a href="#p6e"><span class="n">06·E</span><b>Server in Russia</b></a>
+  <a href="#p6f"><span class="n">06·F</span><b>Cascade: entry in Russia, exit abroad</b></a>
+  <a href="#p6g"><span class="n">06·G</span><b>Relay servers</b></a>
+  <a href="#p7"><span class="n">07</span><b>Users and links</b></a>
+  <a href="#p8"><span class="n">08</span><b>Checks</b></a>
+  <a href="#p9"><span class="n">09</span><b>Updating</b></a>
+  <a href="#faq"><span class="n">10</span><b>If something goes wrong</b></a>
+</div>
+
+<section id="p0">
+  <div class="kicker"><span class="num">00</span><h2>What you need beforehand</h2></div>
+  <ul class="clean">
+    <li><b>A server</b> — Ubuntu 22.04 or 24.04, x86_64, SSH access as root. A clean one: the panel installs everything it needs and takes ports 80 and 443.</li>
+    <li><b>A domain</b> — your own, any. Free dynamic domains won’t do: they get blocked as whole zones, we’ve been through that.</li>
+    <li><b>A name for the panel</b> — required. For example, the subdomain <span class="path">panel.example.com</span>.</li>
+    <li><b>A name for the connection</b> — not everyone needs one. The Reality scheme needs no domain at all; the “behind a real website” and NaiveProxy schemes require one, each its own. They are all just subdomains of one domain pointing to the same server.</li>
+  </ul>
+  <div class="note warn"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 9v4m0 4h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg></span>
+  <p><b>The panel and the connection must use different names.</b> The panel checks this and won’t let you save otherwise. The reason is simple: if they share a host, anyone who found your VPN has found your admin login too.</p></div>
+</section>
+
+<section id="p1">
+  <div class="kicker"><span class="num">01</span><h2>Domains and DNS</h2></div>
+  <p>This step has one goal: make your domain’s names point to your server. It is done not on the server but <b>in your registrar’s account</b> — where you bought the domain. It takes five minutes, and you won’t need to come back to it.</p>
+
+  <h3 style="margin:22px 0 8px">Recommended — two records, and DNS is done for good</h3>
+  <p>This is how our own server is set up.</p>
+  <ol class="steps">
+    <li>In the registrar’s account open the domain’s DNS settings and click <b>“Add record”</b>.</li>
+    <li>Type — <b>A</b>. In the name field enter a single asterisk: <span class="path">*</span>. In the value field — your server’s IP. Save.</li>
+    <li>Add <b>a second identical record</b>, but with <span class="path">@</span> in the name field (some registrars leave the field empty instead of @). Save.</li>
+  </ol>
+  <p>What you just did:</p>
+  <ul class="clean">
+    <li>The asterisk means <b>“any subdomain”</b>. Now <span class="path">panel.example.com</span>, the NaiveProxy name and any name you may need later already point to the server — whatever schemes you enable later, you won’t need to touch DNS again.</li>
+    <li>The <span class="path">@</span> record is <b>the domain itself</b>, <span class="path">example.com</span> without a subdomain. The asterisk <b>doesn’t cover</b> it — and you need it if you take the “behind a real website” scheme on the bare domain.</li>
+  </ul>
+
+  <h3 style="margin:22px 0 8px">For the careful — individual records</h3>
+  <p>The only downside of the asterisk: your server also answers any random subdomain someone types. If you don’t like that, create separate records instead — all of type A and all with the value “server IP”:</p>
+  <table>
+    <tr><th>Record name</th><th>What for</th><th>When needed</th></tr>
+    <tr><td><span class="path">panel</span></td><td>logging in to the control panel</td><td><b>always</b></td></tr>
+    <tr><td><span class="path">@</span> (and <span class="path">www</span>, if you want an address with www)</td><td>your website and the connection “behind” it</td><td>only scheme B (section 06·B)</td></tr>
+    <tr><td>a name for NaiveProxy — <b>make one up</b>, any word: <span class="path">files</span>, <span class="path">cloud</span>, anything</td><td>the address NaiveProxy connects to</td><td>only if you use it (section 06·D)</td></tr>
+  </table>
+  <p>The <b>Reality (06·A)</b> scheme needs no name at all — its absence from this table is not a mistake.</p>
+  <h3 style="margin:22px 0 8px">What it looks like at the registrar</h3>
+  <p>The record form is called differently everywhere, but the fields are always the same. The most common confusion is the name field:</p>
+  <table>
+    <tr><th>Field in the domain panel</th><th>What to enter</th></tr>
+    <tr><td>“Name” / “Host” / <b>“Subdomain”</b> — all the same field</td><td>only the subdomain label: <span class="path">panel</span> (without <span class="path">.example.com</span> — the registrar adds it)</td></tr>
+    <tr><td>the same field, if the record is for the domain itself</td><td><span class="path">@</span> (some use an empty field)</td></tr>
+    <tr><td>the same field for an “any subdomain” record</td><td>a single asterisk: <span class="path">*</span></td></tr>
+    <tr><td>“Type”</td><td><span class="path">A</span></td></tr>
+    <tr><td>“Value” / “Address” / “Points to”</td><td>your server’s IPv4</td></tr>
+    <tr><td>“TTL”</td><td>leave it, any default works</td></tr>
+  </table>
+  <p>If your registrar creates subdomains in a separate section (“Create subdomain”), it is the same A record from a different entrance: create the subdomain <span class="path">panel</span> and give it the server’s IP. You never need to buy or register a subdomain separately — it “appears” when the record is created.</p>
+  <div class="note warn"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3 2.5 20h19L12 3Z"/><path d="M12 10v4m0 3h.01"/></svg></span>
+  <p><b>Cloudflare:</b> turn off proxying for the record — the cloud must be <b>grey</b> (“DNS only”), not orange. The orange cloud sends traffic through Cloudflare’s servers, and the connections (Reality, NaiveProxy) won’t work.</p></div>
+  <div class="note warn"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3 2.5 20h19L12 3Z"/><path d="M12 10v4m0 3h.01"/></svg></span>
+  <p><b>AAAA records</b> (IPv6): if the server has no IPv6, don’t create them. A leftover AAAA record from an old host pointing to someone else’s address breaks certificate issuance: Let&#8217;s Encrypt tries IPv6 first and hits a server that isn’t yours.</p></div>
+  <div class="note"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 8v5m0 3h.01"/></svg></span>
+  <p>Records don’t spread across the internet instantly — usually minutes, sometimes up to an hour. Until the domain answers with your IP, the certificate won’t be issued. To check: <code>ping panel.example.com</code> (or <code>nslookup panel.example.com</code>) should show the server’s IP.</p></div>
+</section>
+
+<section id="p2">
+  <div class="kicker"><span class="num">02</span><h2>Installation</h2></div>
+  <p>Log in to the server over SSH as root and run one command:</p>
+  <pre class="cmd"><span class="who">on the server</span><code>curl -fsSL https://raw.githubusercontent.com/zintar4435-experience/Codex-of-Admin/main/bootstrap.sh | sudo bash</code></pre>
+  <p>It installs everything by itself: Xray, Caddy with NaiveProxy support, the panel itself, the services and the firewall. It takes a few minutes.</p>
+  <p>You will run the same command to update — it detects that the panel is already installed and updates only the code. The database and settings are not touched.</p>
+</section>
+
+<section id="p3">
+  <div class="kicker"><span class="num">03</span><h2>First login and HTTPS</h2></div>
+  <ol class="steps">
+    <li>The installer <b>showed the admin login and password at the end of installation</b> — in the “ВОЙТИ В ПАНЕЛЬ” (Log in to the panel) box. Save them: the password is shown once. If you lost it, set a new one on the server:
+      <pre class="cmd"><span class="who">on the server</span><code>/opt/proxy-panel/venv/bin/python /opt/proxy-panel/run.py --create-admin --username admin --password 'NEW_PASSWORD'</code></pre>
+    </li>
+    <li>Open <span class="path">http://SERVER-IP:5000</span> and log in with those credentials.</li>
+    <li>In the panel settings enter the panel domain — <span class="path">panel.example.com</span>.</li>
+    <li>Save. The panel gets a certificate and moves to <span class="path">https://panel.example.com</span> by itself.</li>
+    <li>Make sure it opens at the new address, and only then go further.</li>
+  </ol>
+  <div class="note"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 8v5m0 3h.01"/></svg></span>
+  <p>Port <span class="path">5000</span> is the <b>emergency entrance that bypasses the domain</b>. Close it (section 04) only after the panel opens at <span class="path">https://panel.example.com</span> — if something goes wrong with the domain, it will be your only way back in.</p></div>
+</section>
+
+<section id="p4">
+  <div class="kicker"><span class="num">04</span><h2>Security — right away, not later</h2></div>
+  <p>Three things worth doing the same day, not “some day”.</p>
+  <ol class="steps">
+    <li><b>Turn on two-factor authentication</b> in the panel settings. This is the main protection: passwords get guessed, the second factor doesn’t.</li>
+    <li><b>Close port 5000.</b> After the move to HTTPS it is no longer needed, and while it’s open it is a way into the admin panel that bypasses the domain:
+      <pre class="cmd"><span class="who">on the server</span><code>sudo ufw delete allow 5000/tcp</code></pre>
+    </li>
+    <li><b>If your host has its own firewall</b>, leave only 22, 80 and 443 open.</li>
+  </ol>
+</section>
+
+<section id="p5">
+  <div class="kicker"><span class="num">05</span><h2>Cover website</h2></div>
+  <p>This is what it’s all about. Your domain must open a real website — otherwise the scheme doesn’t work.</p>
+  <p>The site files live in <span class="path">/var/www/decoy</span>. Installation doesn’t create this folder — create it yourself and put a site there.</p>
+  <h3 style="margin:22px 0 8px">A ready-made site in one command</h3>
+  <p>The simplest is to take our ready-made cover site — the same one that runs on the reference server:</p>
+  <pre class="cmd"><span class="who">on the server</span><code>sudo mkdir -p /var/www/decoy
+sudo git clone https://github.com/zintar4435-experience/Codex_site.git /var/www/decoy</code></pre>
+  <p>Open your domain in a browser — an ordinary website should appear. That’s it, the cover is ready.</p>
+  <h3 style="margin:22px 0 8px">Your own site</h3>
+  <p>If you want your own, create the folder and put the files in it (an <span class="path">index.html</span> in the root is required):</p>
+  <pre class="cmd"><span class="who">on the server</span><code>sudo mkdir -p /var/www/decoy</code></pre>
+  <p>Any ready HTML template will do (a business card, a landing page, a portfolio). The point is that a person who opens the domain sees a website and isn’t surprised.</p>
+  <div class="note warn"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 9v4m0 4h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg></span>
+  <p><b>An empty folder is only half the job.</b> A domain with a certificate but no site looks more suspicious than a domain without a certificate: “there is a site but no content” is exactly the anomaly automated checks look for. An empty folder is better than nothing, but a real site is better than an empty folder.</p></div>
+</section>
+
+<section id="p6">
+  <div class="kicker"><span class="num">06</span><h2>Which scheme to choose</h2></div>
+  <p>The panel supports several methods, and they are not mutually exclusive — one server can run two at once. First, how they differ.</p>
+  <table>
+    <tr><th>Scheme</th><th>Needs a domain</th><th>Speed</th><th>Stealth</th><th>When to use</th></tr>
+    <tr><td><b>VLESS + Reality</b></td><td>no</td><td>maximum</td><td>high</td><td>by default</td></tr>
+    <tr><td><b>Behind a real website</b></td><td>yes</td><td>slightly lower</td><td>maximum</td><td>where Reality gets cut</td></tr>
+    <tr><td><b>NaiveProxy</b></td><td>yes, its own</td><td>medium</td><td>high</td><td>as a backup route</td></tr>
+    <tr><td><b>SSH</b></td><td>no</td><td>low</td><td>medium</td><td>when nothing else works</td></tr>
+  </table>
+  <div class="note"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 8v5m0 3h.01"/></svg></span>
+  <p><b>If you don’t want to choose</b>, take the <b>“VLESS + Reality”</b> template as is (option A): it disguises itself as a large well-known site and leaves port 443 alone — the panel, NaiveProxy and your site work alongside. Option <b>C</b> (everything on one 443 under your domain) is less visible to scanners, but with some Russian providers such connections “freeze”: text gets through, pictures and pages don’t.</p></div>
+  <div class="note warn"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 9v4m0 4h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg></span>
+  <p>The panel also shows Trojan and Shadowsocks. <b>Our app doesn’t understand them</b> — it supports VLESS, NaiveProxy and SSH. Create them only if your people use third-party clients.</p></div>
+</section>
+
+<section id="p6a">
+  <div class="kicker"><span class="num">06·A</span><h2>Option A — VLESS + Reality</h2></div>
+  <p>The fastest and simplest: no domain for the tunnel, no certificate, everything comes up in one action.</p>
+  <p>How it works: the server imitates someone else’s TLS handshake — for example, presents itself as <span class="path">www.samsung.com</span>. Anyone who doesn’t know the key really does land on the real site you disguise as.</p>
+  <p>In the panel: <b>«Инбаунды»</b> (Inbounds) → create → template <b>«VLESS + Reality»</b>. The template fills in everything: in the <b>«Маскировка»</b> (Disguise) block <b>«Под известный сайт»</b> (As a well-known site) and the site <span class="path">www.samsung.com</span> are already selected — no need to change them.</p>
+  <table>
+    <tr><th>Field</th><th>Value</th><th>Why</th></tr>
+    <tr><td>Engine</td><td><b>Xray</b></td><td>Reality exists only here</td></tr>
+    <tr><td>Protocol</td><td><b>VLESS</b></td><td>Reality doesn’t work with the others at all</td></tr>
+    <tr><td>Transport</td><td><b>TCP</b></td><td>required, the panel checks it</td></tr>
+    <tr><td>Port</td><td><b>filled in automatically</b> (2083, 2087…)</td><td>443 stays with the panel and your site. If the hint under the “Port” field says it’s closed, run the command shown there once on the server</td></tr>
+    <tr><td>Disguise</td><td><b>«Под известный сайт»</b> (As a well-known site)</td><td>with some Russian providers, connections to little-known domains “freeze”; with a large site they don’t</td></tr>
+    <tr><td>Reality keys</td><td>filled in automatically</td><td>the panel generates them, nothing to type</td></tr>
+    <tr><td>Flow</td><td><b>xtls-rprx-vision</b></td><td>this is what gives the speed, see below</td></tr>
+  </table>
+  <div class="note warn"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 9v4m0 4h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg></span>
+  <p><b>Don’t pick gRPC or WebSocket “for reliability”.</b> Reality requires TCP specifically — on another transport the panel refuses. And even where such a combination can be built, it is slow: a second layer with its own flow control appears on top of the encryption, and on a long route that means slow connects and low speed. We investigated exactly such a case on a friend’s server — the complaints were exactly about this.</p></div>
+  <div class="note"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 8v5m0 3h.01"/></svg></span>
+  <p><b>Reality’s weak spot is the mismatch.</b> The connection goes to your IP but presents someone else’s name. Some filtering systems compare the two. Option C below removes the mismatch completely.</p></div>
+  <div class="note"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 8v5m0 3h.01"/></svg></span>
+  <p><b>Another site to disguise as</b> — click <b>«Подобрать»</b> (Pick) next to the “Site” field: the panel checks large sites and subnet neighbours from your server and lists suitable ones; one click and the site is filled in. Large sites are at the top — take those. You can also type your own and click <b>«Проверить»</b> (Check). The <b>«Заметность»</b> (Visibility) page has a <b>«Проверить заметность»</b> (Check visibility) button: it shows what a scanner coming to your server from outside sees.</p></div>
+</section>
+
+<section id="p6b">
+  <div class="kicker"><span class="num">06·B</span><h2>Option B — behind a real website</h2></div>
+  <p>There is no disguise as someone else’s site here: you have your own domain with your own site on it, and the VPN lives inside it on a secret path. From outside it is an ordinary HTTPS website — because it is an ordinary HTTPS website.</p>
+  <p><b>DNS for this scheme:</b> the domain itself (the <span class="path">@</span> record from step 01) must point to the server. If you made the two records the recommended way, it’s already done.</p>
+  <p>In the panel: <b>«Инбаунды»</b> (Inbounds) → create.</p>
+  <table>
+    <tr><th>Field</th><th>Value</th><th>Why</th></tr>
+    <tr><td>Engine</td><td><b>Xray</b></td><td>only it has the mode checkbox</td></tr>
+    <tr><td>Protocol</td><td><b>VLESS</b></td><td>the only one the client supports</td></tr>
+    <tr><td>Transport</td><td><b>ws</b> or <b>httpupgrade</b></td><td>Caddy proxies only an HTTP upgrade by path</td></tr>
+    <tr><td>Domain</td><td><span class="path">www.example.com</span></td><td>not the panel’s — the panel checks this</td></tr>
+    <tr><td>Path</td><td><span class="path">/a7f3c1b9e2</span></td><td>8+ characters, not obvious</td></tr>
+    <tr><td>Behind a real website</td><td><b>on</b></td><td>this is the mode itself</td></tr>
+  </table>
+  <div class="note danger"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 9v4m0 4h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg></span>
+  <p><b>The path is a key, not decoration.</b> <span class="path">/ws</span>, <span class="path">/vpn</span>, <span class="path">/api</span> are found by brute force in minutes, and then the disguise stops working: from outside it’s visible that there is something behind the site. The panel rejects anything shorter than 8 characters. Take a random mix of letters and digits — and <b>write it down</b>; recovering it from the panel later is harder than it seems.</p></div>
+  <div class="note"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 8v5m0 3h.01"/></svg></span>
+  <p><b>Reality can’t be turned on in this inbound</b>, and the panel won’t let you. These are two different ways of handling encryption, and there is only one layer: here Caddy takes it on with your domain’s certificate, while Reality means there is no certificate at all and Xray imitates the handshake. The restriction applies <b>to a single inbound only</b> — on a server both schemes get along fine, see option C.</p></div>
+</section>
+
+<section id="p6c">
+  <div class="kicker"><span class="num">06·C</span><h2>Option C — both schemes on one server</h2></div>
+  <p>Recommended. The panel supports this specifically, and it is set up like this: <b>just create both inbounds</b> — from option A and from option B. Nothing else is needed.</p>
+  <p>What happens by itself:</p>
+  <ul class="clean">
+    <li>Caddy moves to <span class="path">127.0.0.1:8443</span> — inside the server, no longer facing outward.</li>
+    <li>Reality takes the public <b>443</b>.</li>
+    <li>Everything that arrives at 443 <b>without the right key</b> is passed by Reality to the local Caddy — and the person sees your site.</li>
+  </ul>
+  <div class="note"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 8v5m0 3h.01"/></svg></span>
+  <p><b>Why this is better than either alone.</b> Reality loses its weak spot: it no longer pretends to be someone else’s site — the cover is your own site, on your own domain and with your certificate. The mismatch “going to one IP, calling itself another name” is gone. And people for whom Reality doesn’t get through take the link of the inbound behind the site. One server, one port, two routes.</p></div>
+  <div class="note warn"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 9v4m0 4h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg></span>
+  <p>After that, <b>port 8443 is taken by Caddy</b> and unavailable to other inbounds — the panel refuses with an explanation. If you need 8443 for something, first move Reality off 443.</p></div>
+</section>
+
+<section id="p6d">
+  <div class="kicker"><span class="num">06·D</span><h2>Option D — NaiveProxy and SSH</h2></div>
+  <p>Two backup routes. They are kept not instead of the main ones but <b>alongside</b> — for when the main one stops working for a particular person.</p>
+
+  <h2 class="plain" style="font-size:1.08rem;margin-top:22px">NaiveProxy</h2>
+  <p>Looks like ordinary browser traffic to a website, because technically that’s what it is. In the panel: <b>«Инбаунды»</b> (Inbounds) → create → template <b>«NaiveProxy»</b>.</p>
+  <ul class="clean">
+    <li><b>It needs a separate name</b> — make up any subdomain (say, <span class="path">files.example.com</span>): not the panel’s and not the one of the inbound behind the site. If you made the asterisk record in step 01, the name already points to the server and DNS needs no changes. If you made individual records, add an A record for it.</li>
+    <li>Port <b>443</b>, TLS required — the panel gets the certificate by itself.</li>
+    <li>A domain is required by design: Caddy sorts incoming connections by name, and without its own name NaiveProxy has nowhere to be routed.</li>
+  </ul>
+
+  <h2 class="plain" style="font-size:1.08rem;margin-top:22px">SSH</h2>
+  <p>The very last line. Slow, but gets through where nothing else does — SSH is rarely blocked, every administrator needs it.</p>
+  <p>In the panel: <b>«Инбаунды»</b> (Inbounds) → create → engine <b>SSH</b>. Enter the port of your sshd (usually <b>22</b>). No domain or certificate needed.</p>
+  <div class="note warn"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 9v4m0 4h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg></span>
+  <p>An SSH node gives real access to your server, so hand it out selectively and not to the same people as the regular links. The speed is noticeably lower than the other schemes — that’s normal and can’t be fixed with settings.</p></div>
+</section>
+
+<section id="p6e">
+  <div class="kicker"><span class="num">06·E</span><h2>Server in Russia — for clients abroad</h2></div>
+  <p>Usually the server is <b>abroad</b> and the users are in Russia. Then the app sends Russian sites and apps directly and everything else through the server.</p>
+  <p>Sometimes it’s the other way round: a person lives abroad but needs Russian services — a bank, Gosuslugi, marketplaces. They often don’t let foreign addresses in. For this the server is placed <b>in Russia</b>, and the app works “mirrored”: Russian traffic goes through the server, everything else directly.</p>
+
+  <h3 style="margin:22px 0 8px">How to turn it on</h3>
+  <ol class="steps">
+    <li>Install the panel on a server in Russia — the same way as in sections 01–06.</li>
+    <li>In the panel: <b>«Сервер»</b> (Server) → <b>«Настройки»</b> (Settings) → <b>«Панель»</b> (Panel) → <b>«Где стоит сервер»</b> (Where the server is) select <b>«В России»</b> (In Russia) and click <b>«Применить»</b> (Apply).</li>
+    <li>Give clients links as usual (section 07). The mode is already inside the link: the app turns on the right rules by itself, nothing to configure.</li>
+  </ol>
+
+  <ul class="clean">
+    <li><b>The app won’t let users change the mode</b> for such a server — nobody can break things by accident.</li>
+    <li>If you changed the switch <b>after</b> handing out links, clients need to update the subscription (or add the link again) — an old link carries the old mode.</li>
+    <li>The default is <b>«Не в России»</b> (Not in Russia). Ordinary servers need no changes.</li>
+    <li>With third-party panels (3x-ui and others) the link carries no mode. Users choose it themselves in the app: <b>Settings → Where you are</b> (at the very bottom of the settings).</li>
+    <li>The switch affects only connections that go out to the internet <b>directly</b> from this server. The same server can also carry connections for people in Russia — through an exit abroad (section 06·F): their links get the exit’s mode by themselves.</li>
+  </ul>
+
+  <div class="note warn"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 9v4m0 4h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg></span>
+  <p><b>Set the switch correctly.</b> A mistake hits all direct connections of the server: «В России» on a server abroad sends their banks abroad, and the bank may block access. The panel doesn’t check for you where the server actually is.</p></div>
+
+  <div class="note warn"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 9v4m0 4h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg></span>
+  <p><b>Check the services you need before promising anything to a client.</b> Some Russian banks and services block not only foreign addresses but hosting addresses too, and a server is exactly a data-centre address. Which ones can’t be said in advance: connect to the new server and open the services the client needs.</p></div>
+</section>
+
+<section id="p6f">
+  <div class="kicker"><span class="num">06·F</span><h2>Cascade: entry in Russia, exit abroad</h2></div>
+  <p>The user connects to a server <b>in Russia</b>, and their traffic goes out to the internet through a server <b>abroad</b>. Why: a Russian address is easier to reach when mobile internet is restricted by “white lists”, and the foreign exit opens blocked sites.</p>
+  <p>You need two servers with our panel: a Russian one (entry) and a foreign one (exit).</p>
+
+  <h3 style="margin:22px 0 8px">How to set it up</h3>
+  <ol class="steps">
+    <li>On the <b>foreign</b> server create an ordinary VLESS + Reality connection (section 06·A) and a client for the Russian server — for example, “entry-moscow”. Copy its key (<span class="path">vless://…</span>).</li>
+    <li>On the <b>Russian</b> server: <b>«Каскад»</b> (Cascade) → <b>«Добавить выход»</b> (Add exit), paste the key. The panel shows what server it is and fills in where it is located. Click <b>«Проверить»</b> (Check) — it should say “работает” (working) and show the exit country.</li>
+    <li>There, in the <b>«Подключения»</b> (Connections) table, choose the exit for the connection you need. The checkbox «Российские сайты — прямо с этого сервера» (Russian sites — directly from this server) turns on by itself: Russian traffic isn’t sent abroad and back.</li>
+    <li>Give clients this connection’s links as usual. The app learns by itself that traffic exits abroad — clients with links already issued should update their subscription.</li>
+  </ol>
+
+  <ul class="clean">
+    <li><b>Several exits.</b> Add two or three exits and combine them into a <b>group</b>: once a minute the panel checks each one and routes traffic through the fastest live one. If one fails, users won’t notice.</li>
+    <li><b>One server — different people.</b> For a client abroad keep a connection “directly from this server” («В России» mode, section 06·E); for people in Russia — a separate connection through an exit. Nothing needs switching: each connection has its own label.</li>
+    <li>Cascade is available for Xray connections (VLESS, Trojan). NaiveProxy and SSH always go out directly from the server.</li>
+  </ul>
+
+  <div class="note warn"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 9v4m0 4h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg></span>
+  <p><b>If an exit is turned off or removed from the group,</b> traffic of its connections goes directly from the Russian server — blocked sites stop opening for people. The «Каскад» (Cascade) page highlights such connections. The panel won’t let you delete an exit that someone uses.</p></div>
+</section>
+
+<section id="p6g">
+  <div class="kicker"><span class="num">06·G</span><h2>Relay servers — when a carrier cuts connections</h2></div>
+  <p>Sometimes a mobile carrier in some city cuts connections to foreign servers — for all VPNs at once, regardless of protocol. For this case the app has an <b>«У меня блокировки»</b> (I have blocks) checkbox: the phone connects to an inexpensive server <b>in Russia</b>, which simply passes the stream on to your main server.</p>
+  <ul class="clean">
+    <li>The relay server <b>decrypts nothing and knows no keys</b>: encryption runs from the phone to the main server. The user keeps the same key and the same internet address.</li>
+    <li>No certificates, domains or panel are needed on the relay server. It is managed only from here, from the main server’s panel.</li>
+    <li>The app goes through a relay <b>only when the user ticks the checkbox</b>. Nothing switches by itself.</li>
+  </ul>
+
+  <h3 style="margin:22px 0 8px">What you need</h3>
+  <ul class="clean">
+    <li>A server in Russia: Ubuntu or Debian, root access. It doesn’t need to be powerful — it only forwards traffic.</li>
+    <li>The main server’s panel must have a domain with HTTPS (section 03) — without it the install command doesn’t work, and the panel warns about it.</li>
+  </ul>
+
+  <h3 style="margin:22px 0 8px">How to connect one</h3>
+  <ol class="steps">
+    <li>In the <b>main</b> server’s panel open <b>«Промежуточные серверы»</b> (Relay servers) and click <b>«Добавить»</b> (Add). A name is enough, e.g. “Moscow”. You can leave the address empty — the panel finds it out by itself.</li>
+    <li>Click <b>«Скопировать команду установки»</b> (Copy install command) and run it on the <b>relay</b> server:
+      <pre class="cmd"><span class="who">on the relay server</span><code>curl -fsSL https://panel.example.com/relay-agent/…/install.sh | sudo bash</code></pre>
+    </li>
+    <li>In a couple of minutes the panel shows <b>«на связи»</b> (online) and the server’s address.</li>
+    <li>Done. The apps get the address when the subscription updates (automatically every few hours, or with the refresh button in the app). The user just ticks «У меня блокировки».</li>
+  </ol>
+
+  <ul class="clean">
+    <li>The ports of enabled connections are forwarded. <b>Port 22 is never forwarded</b> — the relay server’s own ssh lives there. So SSH connections on port 22 go directly; the app knows this and warns the user.</li>
+    <li>Turned off or deleted the server in the panel — forwarding on it is removed by itself within a couple of minutes.</li>
+    <li>If the panel is temporarily unreachable, the relay server <b>keeps forwarding</b> with the last settings, including after a reboot.</li>
+    <li><b>Traffic counter.</b> The table shows how much each relay server has forwarded: ↑ from users, ↓ back, since which date — and a button to reset it. The relay server’s host usually shows about <b>twice as much</b>: every byte passes through the server twice, in and out.</li>
+    <li><b>To update the agent</b> on a relay server, run the same install command again. If the «Трафик» (Traffic) column says «повторите команду установки» (repeat the install command), the agent is old and doesn’t count traffic (forwarding still works).</li>
+  </ul>
+
+  <div class="note warn"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 9v4m0 4h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg></span>
+  <p><b>The script doesn’t touch the relay server’s firewall.</b> If ufw is on there, the script warns you: allow forwarding yourself (for example, <code>ufw default allow routed</code>). If your host has its own firewall, open the ports of your connections in it.</p></div>
+  <div class="note"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 8v5m0 3h.01"/></svg></span>
+  <p>To check that it works: on the relay server run <code>journalctl -u coc-relay.service -n 20</code> — it shows which address and ports are forwarded.</p></div>
+</section>
+
+<section id="p7">
+  <div class="kicker"><span class="num">07</span><h2>Users and links</h2></div>
+  <ol class="steps">
+    <li>In the panel: <b>«Клиенты»</b> (Clients) → add, choose the inbound you created.</li>
+    <li>Each client has a link and a QR code — that’s what you give the person.</li>
+    <li>In the app on a phone or computer the link is added in one action; nothing needs configuring.</li>
+  </ol>
+  <div class="note warn"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 9v4m0 4h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg></span>
+  <p><b>A subscription link is a key in itself.</b> An address like <span class="path">https://domain/sub/…</span> gives out all of the user’s nodes without a password. Hand it over personally, don’t post it in group chats and don’t send it to us for support — for troubleshooting, <span class="path">vless://…</span> lines with the ID replaced are enough.</p></div>
+</section>
+
+<section id="p8">
+  <div class="kicker"><span class="num">08</span><h2>Checks</h2></div>
+  <p>Three checks worth passing before you hand out links.</p>
+  <ol class="steps">
+    <li><b>Services are alive.</b> All four should be <code>active (running)</code>:
+      <pre class="cmd"><span class="who">on the server</span><code>systemctl status proxy-panel proxy-panel-scheduler xray caddy</code></pre>
+    </li>
+    <li><b>The panel responds.</b> It should return <code>{"status":"ok"}</code>:
+      <pre class="cmd"><span class="who">on the server</span><code>curl -sf http://127.0.0.1:5000/api/system/health</code></pre>
+    </li>
+    <li><b>The site opens.</b> Open <span class="path">https://www.example.com</span> from a phone on mobile internet — your cover site should open, with no certificate warnings.</li>
+  </ol>
+  <p>And only then connect yourself, with your own link, before giving it to others.</p>
+</section>
+
+<section id="p9">
+  <div class="kicker"><span class="num">09</span><h2>Updating</h2></div>
+  <p>The same command as for installation. It detects by itself that the panel is already installed:</p>
+  <pre class="cmd"><span class="who">on the server</span><code>curl -fsSL https://raw.githubusercontent.com/zintar4435-experience/Codex-of-Admin/main/bootstrap.sh | sudo bash</code></pre>
+  <p>Only the panel code is updated. Users, inbounds and settings stay in place. It can be run as many times as you like.</p>
+</section>
+
+<section id="faq">
+  <div class="kicker"><span class="num">10</span><h2>If something goes wrong</h2></div>
+  <p>Collected from the rakes we stepped on ourselves. Each one cost several hours.</p>
+
+  <details><summary><span class="q">01</span>The panel doesn’t open by domain<span class="chev"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 18 6-6-6-6"/></svg></span></summary>
+  <div class="body"><p>Almost always the DNS hasn’t spread yet, or the A record points elsewhere. Check <code>ping panel.example.com</code>: your server’s IP should answer. Until it does, the certificate won’t be issued, and that’s normal.</p>
+  <p>If the IP is right but there’s no page, look at Caddy: <code>journalctl -u caddy -n 100 --no-pager</code>.</p></div></details>
+
+  <details><summary><span class="q">02</span>“Port 8443 is taken”<span class="chev"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 18 6-6-6-6"/></svg></span></summary>
+  <div class="body"><p>That’s by design. If you have a Reality inbound on 443, Caddy moves to <span class="path">127.0.0.1:8443</span> and shares port 443 with it. That port is then reserved — another inbound can’t take it.</p>
+  <p>Need 8443 for something else — first move Reality off 443.</p></div></details>
+
+  <details><summary><span class="q">03</span>The domain stopped opening for everyone at once<span class="chev"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 18 6-6-6-6"/></svg></span></summary>
+  <div class="body"><p>If the server is alive and the services run, most likely the domain itself was blocked, not the server. It happens with free and dynamic zones: they get blocked whole, together with all the other names inside.</p>
+  <p>Easy to check: the same server answers by IP but not by name. The only cure is moving to your own domain. That’s why the beginning says: the domain must be your own.</p></div></details>
+
+  <details><summary><span class="q">04</span>Users disappeared after editing an inbound<span class="chev"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 18 6-6-6-6"/></svg></span></summary>
+  <div class="body"><p>This has happened to us. <b>After any edit of an existing inbound, check the client list.</b> If you’re going to change something serious — protocol, transport, port — first make a backup in the panel settings.</p>
+  <p>And a general rule: creating a new inbound is safer than reworking a working one. The old one can be turned off once everyone has moved to the new one.</p></div></details>
+
+  <details><summary><span class="q">05</span>The connection works, but slowly<span class="chev"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 18 6-6-6-6"/></svg></span></summary>
+  <div class="body"><p>First rule out the server: try the same link from another internet — mobile, at a friend’s. Slow everywhere — the problem is the server or its channel, and settings won’t fix it.</p>
+  <p>Slow with one carrier and fast with another — that’s the provider holding back traffic. The sign: fast in the morning, barely alive in the evening. This is exactly where the site disguise helps — the reason it was all done.</p></div></details>
+
+  <details><summary><span class="q">06</span>What to look at when it’s unclear<span class="chev"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 18 6-6-6-6"/></svg></span></summary>
+  <div class="body"><p>Three logs, one for each part:</p>
+  <pre><code>journalctl -u proxy-panel -n 100 --no-pager
+journalctl -u xray        -n 100 --no-pager
+journalctl -u caddy       -n 100 --no-pager</code></pre>
+  <p>The panel doesn’t open — the first. A client can’t connect — the second. Problems with the domain or certificate — the third.</p></div></details>
+</section>
+
+</div>
+
+<footer><div class="wrap">
+  <span>Codex of Admin</span>
+  <span>The panel, the client and this guide are one product.</span>
+</div></footer>
+
+<script>
+  function setTheme(t) {
+    document.documentElement.setAttribute('data-theme', t);
+    try { localStorage.setItem('coa-theme', t); } catch (e) {}
+    document.getElementById('t-light').setAttribute('aria-pressed', String(t === 'light'));
+    document.getElementById('t-dark').setAttribute('aria-pressed', String(t === 'dark'));
+  }
+  (function () {
+    var saved = null;
+    try { saved = localStorage.getItem('coa-theme'); } catch (e) {}
+    if (saved) { setTheme(saved); return; }
+    var dark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+    document.getElementById('t-light').setAttribute('aria-pressed', String(!dark));
+    document.getElementById('t-dark').setAttribute('aria-pressed', String(dark));
+  })();
+</script>
+</body>
