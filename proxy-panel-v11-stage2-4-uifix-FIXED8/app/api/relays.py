@@ -49,7 +49,20 @@ def overview():
         "ports": relays_core.forward_ports(),
         "panel_https": bool((Setting.get("panel_domain", "") or "").strip()),
         "agent_version": relays_core.AGENT_VERSION,
+        "variants": relays_core.variants_enabled(),
     })
+
+
+@bp.put("/settings")
+@login_required
+def update_relay_settings():
+    data = request.get_json(force=True) or {}
+    if "variants" in data:
+        Setting.set(relays_core.VARIANTS_SETTING, "1" if data.get("variants") else "0")
+        db.session.commit()
+        log_action("relay.settings", target_type="relay", target_id=0,
+                   target_name=f"variants={'on' if data.get('variants') else 'off'}")
+    return jsonify({"variants": relays_core.variants_enabled()})
 
 
 def _clean_host(value) -> tuple[str | None, str | None]:

@@ -15,7 +15,7 @@ Subscription URL — публичный endpoint для клиентских п�
 """
 import base64
 from datetime import timezone
-from flask import Blueprint, abort, Response
+from flask import Blueprint, abort, Response, request
 
 from app.models import Client
 from app.api.clients import generate_link
@@ -67,6 +67,15 @@ def subscription(token: str):
         link = generate_link(c, c.inbound)
         if link:
             links.append(link)
+
+    # Сторонним приложениям (айфон и др.) — ещё и копии серверов «(через РФ)»
+    # через промежуточные серверы: галочки «У меня блокировки» у них нет,
+    # человек выбирает такой сервер сам. Нашему приложению — без дублей.
+    if not relays_core.is_own_app(request.headers.get("User-Agent")):
+        try:
+            links += relays_core.relay_variant_links(links)
+        except Exception:
+            pass
 
     body = base64.b64encode("\n".join(links).encode("utf-8")).decode("ascii")
 

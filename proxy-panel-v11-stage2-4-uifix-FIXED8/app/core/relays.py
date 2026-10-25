@@ -29,6 +29,7 @@
 import ipaddress
 import re
 import secrets
+import urllib.parse
 
 from app.models import Inbound, Relay, Setting
 
@@ -45,6 +46,12 @@ RESERVED_PORTS = frozenset({22})
 # 2 — счётчик трафика (2026-10-22): агент сообщает панели, сколько байт
 # переслал. Агент версии 1 пересылает как раньше, только без счётчика.
 AGENT_VERSION = "2"
+
+# Варианты «через РФ» в подписке для СТОРОННИХ приложений (решение владельца
+# 2026-10-25): на айфоне нашего приложения нет, галочки «У меня блокировки»
+# тоже — человек сам выбирает в своём клиенте сервер «(через РФ)». Настройка
+# панели, по умолчанию включено ('1').
+VARIANTS_SETTING = "relay_sub_variants"
 
 
 def new_token() -> str:
@@ -117,27 +124,84 @@ def is_valid_host(value: str) -> bool:
                 or ip.is_multicast or ip.is_unspecified or ip.is_reserved)
 
 
-def subscription_header() -> str | None:
-    """Значение заголовка Coc-Relays или None, если промежуточных серверов
-    нет. Формат (одна строка, без секретов):
-        v=1; hosts=1.2.3.4,5.6.7.8; ports=443,8443
-    hosts — в порядке, в котором приложение их пробует (живые свежее —
-    раньше); ports — какие порты они пересылают."""
+def _active_relays() -> list[tuple[str, str]]:
+    """(имя, адрес) включённых промежуточных серверов с годным адресом, живые
+    свежее — раньше, без повторов адреса."""
     relays = Relay.query.filter_by(enabled=True).all()
-    hosts: list[str] = []
+    out: list[tuple[str, str]] = []
 
     def freshness(r: Relay):
         return r.last_seen.timestamp() if r.last_seen else 0.0
 
     for r in sorted(relays, key=freshness, reverse=True):
         h = r.public_host
-        if is_valid_host(h) and h not in hosts:
-            hosts.append(h)
+        if is_valid_host(h) and h not in [x[1] for x in out]:
+            out.append((r.name, h))
+    return out
+
+
+def subscription_header() -> str | None:
+    """Значение заголовка Coc-Relays или None, если промежуточных серверов
+    нет. Формат (одна строка, без секретов):
+        v=1; hosts=1.2.3.4,5.6.7.8; ports=443,8443
+    hosts — в порядке, в котором приложение их пробует (живые свежее —
+    раньше); ports — какие порты они пересылают."""
+    hosts = [h for _, h in _active_relays()]
     ports = forward_ports()
     if not hosts or not ports:
         return None
     return (f"v={FORMAT_VERSION}; hosts={','.join(hosts)}; "
             f"ports={','.join(str(p) for p in ports)}")
+
+
+def variants_enabled() -> bool:
+    return (Setting.get(VARIANTS_SETTING, "1") or "1") != "0"
+
+
+def is_own_app(user_agent: str | None) -> bool:
+    """Запрос подписки от приложения Codex of Connect (User-Agent
+    «codex-of-connect/<версия>», у старых — «/0.1»). Ему варианты «через РФ»
+    не нужны: адреса промежуточных серверов оно берёт из заголовка Coc-Relays
+    и включает их галочкой «У меня блокировки»."""
+    return (user_agent or "").strip().lower().startswith("codex-of-connect")
+
+
+# vless://… и trojan://… — адрес сервера отдельно от имени для TLS/Reality
+# (sni в параметрах ссылки), поэтому адрес можно заменить на промежуточный
+# сервер, не трогая остального. NaiveProxy так нельзя: в его ссылке адрес и
+# имя сайта — одно и то же (сторонние клиенты не умеют их развести).
+_VARIANT_LINK = re.compile(
+    r"^(vless|trojan)://([^@/?#\s]+)@([^:/?#\[\]\s]+|\[[^\]]+\]):(\d{1,5})([^#\s]*)(?:#(.*))?$")
+
+
+def relay_variant_links(links: list[str]) -> list[str]:
+    """Копии ссылок с адресом промежуточного сервера и пометкой «(через РФ)»
+    в имени — для сторонних клиентов. Только для портов, которые промежуточный
+    сервер пересылает (не 22). Пусто — настройка выключена или промежуточных
+    серверов нет."""
+    if not variants_enabled():
+        return []
+    relays = _active_relays()
+    ports = set(forward_ports())
+    if not relays or not ports:
+        return []
+    out: list[str] = []
+    for link in links:
+        m = _VARIANT_LINK.match(link.strip())
+        if not m:
+            continue
+        scheme, user, host, port, rest, frag = m.groups()
+        if int(port) not in ports:
+            continue
+        name = urllib.parse.unquote(frag or "")
+        for relay_name, relay_host in relays:
+            if relay_host == host:
+                continue
+            via = "через РФ" if len(relays) == 1 else f"через РФ, {relay_name}"
+            label = f"{name} ({via})" if name else f"({via})"
+            out.append(f"{scheme}://{user}@{relay_host}:{port}{rest}"
+                       f"#{urllib.parse.quote(label)}")
+    return out
 
 
 def config_text(relay: Relay) -> str:
