@@ -50,6 +50,25 @@
   </div>
 </div>
 
+<div class="card">
+  <div class="card-header">
+    <span class="card-title">Айфоны и другие приложения</span>
+  </div>
+  <label style="display:flex;gap:10px;align-items:flex-start;cursor:pointer">
+    <input type="checkbox" id="rl-variants" onchange="toggleVariants(this.checked)" style="margin-top:3px">
+    <span>
+      <b>Добавлять в подписку серверы «через РФ»</b>
+      <div class="rl-note" style="margin-top:4px">
+        В приложении Codex of Connect для этого есть галочка «У меня блокировки». У других приложений
+        (на айфоне — Streisand, V2Box, Shadowrocket и т. п.) её нет: им подписка отдаёт ещё и копии
+        VLESS-серверов с пометкой «(через РФ)» — человек сам выбирает такой сервер, когда оператор режет связь.
+        Ключи перевыдавать не нужно: копии появятся при обновлении подписки. NaiveProxy так не работает,
+        SSH на 22-м порту — тоже. Приложению Codex of Connect копии не отдаются.
+      </div>
+    </span>
+  </label>
+</div>
+
 <div class="modal-backdrop" id="modal-relay">
   <div class="modal-box" style="width:520px">
     <div class="modal-title" id="relay-modal-title">Новый промежуточный сервер</div>
@@ -72,7 +91,7 @@
 {% endblock %}
 {% block scripts %}
 <script>
-let state = {relays: [], target: '', ports: [], panel_https: true, agent_version: ''};
+let state = {relays: [], target: '', ports: [], panel_https: true, agent_version: '', variants: true};
 let editId = null;
 
 async function load() {
@@ -97,6 +116,7 @@ function ago(iso) {
 }
 
 function render() {
+  document.getElementById('rl-variants').checked = !!state.variants;
   const t = document.getElementById('rl-target');
   if (!state.panel_https) {
     t.innerHTML = '<span class="text-danger">У панели нет домена с HTTPS — команда установки работать не будет. Сначала настройте домен панели.</span>';
@@ -196,6 +216,17 @@ async function saveRelay() {
     load();
   } catch (e) {
     toast(e.message, 'error');
+  }
+}
+
+async function toggleVariants(on) {
+  try {
+    await api('PUT', '/api/relays/settings', {variants: on});
+    toast(on ? 'Серверы «через РФ» добавляются в подписку' : 'Серверы «через РФ» больше не добавляются');
+    load();
+  } catch (e) {
+    toast(e.message, 'error');
+    load();
   }
 }
 
