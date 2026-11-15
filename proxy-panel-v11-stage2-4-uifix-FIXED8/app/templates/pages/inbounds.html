@@ -1314,6 +1314,7 @@ function onTlsToggle() {
 function onBehindCaddyToggle() {
   const bc = document.getElementById('f-behind-caddy');
   const tr = document.getElementById('f-transport');
+  updateFirewallHint();
   if (!bc || !bc.checked) return;
   showRealitySection(false);
   const tls = document.getElementById('f-tls');
@@ -1385,6 +1386,7 @@ async function editInbound(id) {
   // в БД у него нет — у старых инбаундов ключа просто не будет.
   document.getElementById('f-behind-caddy').checked =
     !!(ib.transport_config || {}).behind_caddy;
+  updateFirewallHint();
   document.getElementById('f-probe').value = '';  // probe-secret скрыт в списке — подтянем ниже
 
   // Reality-поля: показываем секцию, если у инбаунда есть reality_public_key
@@ -1572,6 +1574,14 @@ function updateFirewallHint() {
   // индикатор не показываем.
   const engine = document.getElementById('f-engine').value;
   if (engine !== 'xray') {
+    hintEl.style.display = 'none';
+    return;
+  }
+  // «За настоящим сайтом»: Xray слушает порт только внутри сервера, снаружи
+  // всё идёт через Caddy на 443 — открывать этот порт не нужно и нельзя
+  // (полевой случай 15.11: предупреждение «порт не открыт» сбивало с толку).
+  const behindCaddy = document.getElementById('f-behind-caddy');
+  if (behindCaddy && behindCaddy.checked) {
     hintEl.style.display = 'none';
     return;
   }
