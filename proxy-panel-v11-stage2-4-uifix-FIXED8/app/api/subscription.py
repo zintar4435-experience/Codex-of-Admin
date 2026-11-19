@@ -64,6 +64,11 @@ def subscription(token: str):
 
         if not c.is_active:
             continue
+        # Подключение выключено — его ключ в подписку не идёт, даже если сам
+        # клиент включён (полевой случай 15.11: старое подключение выключили,
+        # а люди продолжали видеть в приложении и старый сервер, и новый).
+        if not c.inbound or not c.inbound.enabled:
+            continue
         link = generate_link(c, c.inbound)
         if link:
             links.append(link)
